@@ -1,8 +1,8 @@
 # Claude Code — Zenith
 
 You are working in **Zenith**, a WebXR planetarium. The GitHub repo is
-`d-prybytak/AR-Constellations`. The product name is **Zenith**, not
-“AR-Constellations” and not a PoC.
+`d-prybytak/arconstellations`. The product name is **Zenith**, not
+“arconstellations” and not a PoC.
 
 Read `README.md`, `docs/ARCHITECTURE.md`, and `CONTRIBUTING.md` before
 editing. Do not invent a second architecture.

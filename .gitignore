@@ -33,3 +33,7 @@ tmp/
 
 # host chrome captures, not the product
 screenshots/app-builder-*
+
+# sandbox / host-only briefs — not part of the public product
+AGENTS.md
+AGENTS.project.md

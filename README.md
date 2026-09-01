@@ -8,7 +8,7 @@ turn by hand. Tap a figure and it gathers out of the night and presents in
 front of you.
 
 This is the public home of **Zenith**. The GitHub repository is named
-`AR-Constellations`; the product is not a proof of concept.
+`arconstellations`; the product is not a proof of concept.
 
 <p align="center">
   <img src="screenshots/exploring.png" alt="Zenith: exploring the night sky" width="900" />
@@ -65,8 +65,8 @@ was born in. **Zenith does not sign anyone in.** Ignore `src/lib/auth` and
 You need Node 22+.
 
 ```bash
-git clone https://github.com/d-prybytak/AR-Constellations.git
-cd AR-Constellations
+git clone https://github.com/d-prybytak/arconstellations.git
+cd arconstellations
 npm install
 npm run dev
 ```

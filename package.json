@@ -5,11 +5,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/d-prybytak/AR-Constellations.git"
+    "url": "git+https://github.com/d-prybytak/arconstellations.git"
   },
-  "homepage": "https://github.com/d-prybytak/AR-Constellations",
+  "homepage": "https://github.com/d-prybytak/arconstellations",
   "bugs": {
-    "url": "https://github.com/d-prybytak/AR-Constellations/issues"
+    "url": "https://github.com/d-prybytak/arconstellations/issues"
   },
   "engines": {
     "node": ">=22"
