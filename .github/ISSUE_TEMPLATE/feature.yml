@@ -1,0 +1,32 @@
+name: Feature
+description: Something the sky should learn
+title: "[feat] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: "The sky stays free. Features should make the night clearer, not noisier."
+  - type: textarea
+    id: want
+    attributes:
+      label: What do you want to see
+      placeholder: ISS path, Russian HUD, Andromeda as a real DSO plate…
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why it belongs in Zenith
+      placeholder: Who holds the phone or headset, and what becomes possible.
+    validations:
+      required: true
+  - type: dropdown
+    id: size
+    attributes:
+      label: Size
+      options:
+        - Good first issue (one file, one evening)
+        - A few nights
+        - Needs a design note first
+    validations:
+      required: true

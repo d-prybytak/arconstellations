@@ -1,0 +1,35 @@
+# dependencies
+node_modules/
+
+# build / framework caches
+dist/
+.output/
+.nitro/
+.tanstack/
+.vercel/
+*.tsbuildinfo
+
+# secrets and host-only config — never publish
+.env
+.env.*
+!.env.example
+.grok/
+.project_id
+.node_modules.lock
+
+# logs / os
+*.log
+.DS_Store
+Thumbs.db
+
+# local scratch
+artifacts/
+tmp/
+
+# editor
+.idea/
+.vscode/
+*.swp
+
+# host chrome captures, not the product
+screenshots/app-builder-*

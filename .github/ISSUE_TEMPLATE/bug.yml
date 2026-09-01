@@ -1,0 +1,43 @@
+name: Bug
+description: Something in the sky is wrong
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: "Look at the vault first. Then tell us what you saw."
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Surface
+      options:
+        - Desktop
+        - iPhone
+        - Android
+        - Galaxy XR / WebXR
+        - Other headset
+    validations:
+      required: true
+  - type: textarea
+    id: happened
+    attributes:
+      label: What happened
+      placeholder: Orion gathered sideways, Follow drifted, sheet peeked…
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What should have happened
+    validations:
+      required: true
+  - type: input
+    id: browser
+    attributes:
+      label: Browser / OS / headset
+      placeholder: Safari iOS 18, Chrome 128 Android, Samsung Internet on Galaxy XR
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      placeholder: Outdoor or indoor? GPS or city? Screenshot if you have one.
