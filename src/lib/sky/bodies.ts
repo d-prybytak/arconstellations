@@ -490,21 +490,53 @@ export function paintMoonPhase(phase: number, waxing: boolean): HTMLCanvasElemen
   const ctx = c.getContext("2d")!;
   const cx = s / 2;
   const cy = s / 2;
-  const r = s * 0.42;
+  const r = s * 0.34;
   ctx.clearRect(0, 0, s, s);
-  const g = ctx.createRadialGradient(cx - r * 0.25, cy - r * 0.3, r * 0.1, cx, cy, r);
-  g.addColorStop(0, "#f4f0e6");
-  g.addColorStop(0.55, "#d9d2c4");
-  g.addColorStop(1, "#8a8478");
+
+  const corona = ctx.createRadialGradient(cx, cy, r * 0.9, cx, cy, r * 2.15);
+  corona.addColorStop(0, "rgba(232, 226, 210, 0.28)");
+  corona.addColorStop(0.45, "rgba(210, 206, 196, 0.08)");
+  corona.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = corona;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r * 2.15, 0, Math.PI * 2);
+  ctx.fill();
+
+  const g = ctx.createRadialGradient(cx - r * 0.28, cy - r * 0.32, r * 0.08, cx, cy, r);
+  g.addColorStop(0, "#f7f3ea");
+  g.addColorStop(0.62, "#d5cec2");
+  g.addColorStop(1, "#6e6a62");
   ctx.fillStyle = g;
   ctx.beginPath();
   ctx.arc(cx, cy, r, 0, Math.PI * 2);
   ctx.fill();
 
-  ctx.globalCompositeOperation = "source-atop";
-  ctx.fillStyle = "rgba(8, 10, 16, 0.88)";
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.clip();
+  const maria: [number, number, number, number][] = [
+    [-0.12, -0.16, 0.3, 0.18],
+    [0.22, -0.08, 0.16, 0.12],
+    [-0.32, 0.12, 0.22, 0.14],
+    [0.46, 0.02, 0.1, 0.08],
+    [0.02, 0.28, 0.2, 0.1],
+  ];
+  ctx.fillStyle = "rgba(92, 90, 84, 0.38)";
+  for (const [nx, ny, rx, ry] of maria) {
+    ctx.beginPath();
+    ctx.ellipse(cx + nx * r, cy + ny * r, rx * r, ry * r, 0.2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+
   const k = clamp(phase, 0, 1);
   const dir = waxing ? 1 : -1;
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.clip();
+  ctx.fillStyle = "rgba(10, 12, 18, 0.8)";
   if (k < 0.5) {
     const w = r * (1 - 2 * k);
     ctx.beginPath();
@@ -524,15 +556,148 @@ export function paintMoonPhase(phase: number, waxing: boolean): HTMLCanvasElemen
     ctx.beginPath();
     ctx.ellipse(cx, cy, Math.abs(w), r, 0, 0, Math.PI * 2);
     ctx.fill();
-    ctx.globalCompositeOperation = "source-atop";
   }
-  ctx.globalCompositeOperation = "source-over";
-  ctx.strokeStyle = "rgba(255,255,255,0.18)";
-  ctx.lineWidth = 2;
+  ctx.restore();
+  return c;
+}
+
+function worldCanvas(): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D; s: number; cx: number; cy: number } {
+  const s = 256;
+  const canvas = document.createElement("canvas");
+  canvas.width = s;
+  canvas.height = s;
+  const ctx = canvas.getContext("2d")!;
+  ctx.clearRect(0, 0, s, s);
+  return { canvas, ctx, s, cx: s / 2, cy: s / 2 };
+}
+
+function halo(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  inner: number,
+  outer: number,
+  color: string,
+) {
+  const g = ctx.createRadialGradient(cx, cy, inner, cx, cy, outer);
+  g.addColorStop(0, color);
+  g.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.arc(cx, cy, outer, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function limbDisc(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  r: number,
+  light: string,
+  mid: string,
+  edge: string,
+) {
+  const g = ctx.createRadialGradient(cx - r * 0.32, cy - r * 0.36, r * 0.05, cx, cy, r);
+  g.addColorStop(0, light);
+  g.addColorStop(0.55, mid);
+  g.addColorStop(1, edge);
+  ctx.fillStyle = g;
   ctx.beginPath();
   ctx.arc(cx, cy, r, 0, Math.PI * 2);
-  ctx.stroke();
-  return c;
+  ctx.fill();
+}
+
+export function paintWorld(id: string): HTMLCanvasElement {
+  const { canvas, ctx, cx, cy } = worldCanvas();
+  if (id === "sun") {
+    halo(ctx, cx, cy, 18, 120, "rgba(255, 214, 140, 0.55)");
+    halo(ctx, cx, cy, 8, 48, "rgba(255, 244, 214, 0.9)");
+    limbDisc(ctx, cx, cy, 22, "#fffaf0", "#ffe3a8", "#e0a050");
+    return canvas;
+  }
+  if (id === "jupiter") {
+    const r = 34;
+    halo(ctx, cx, cy, r, r * 2.4, "rgba(232, 206, 164, 0.28)");
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.clip();
+    const bands = ["#e7d3ae", "#c9a67a", "#f3e6cc", "#b88958", "#efe0c2", "#a87448", "#e4cfaa"];
+    const h = (r * 2) / bands.length;
+    bands.forEach((col, i) => {
+      ctx.fillStyle = col;
+      ctx.fillRect(cx - r, cy - r + i * h, r * 2, h + 0.5);
+    });
+    ctx.fillStyle = "rgba(168, 78, 52, 0.8)";
+    ctx.beginPath();
+    ctx.ellipse(cx + 10, cy + 6, 8, 4.2, -0.3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+    limbDisc(ctx, cx, cy, r, "rgba(255,255,255,0.16)", "rgba(0,0,0,0)", "rgba(0,0,0,0.42)");
+    return canvas;
+  }
+  if (id === "saturn") {
+    const r = 26;
+    halo(ctx, cx, cy, r, r * 2.6, "rgba(226, 206, 160, 0.22)");
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(-0.55);
+    ctx.strokeStyle = "rgba(226, 210, 176, 0.85)";
+    ctx.lineWidth = 7;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, r * 1.85, r * 0.48, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.strokeStyle = "rgba(90, 78, 58, 0.55)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, r * 1.55, r * 0.4, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+    limbDisc(ctx, cx, cy, r, "#f6edd4", "#e2cfa4", "#b89a68");
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(-0.55);
+    ctx.beginPath();
+    ctx.rect(-r * 2.2, 2, r * 4.4, r * 1.4);
+    ctx.clip();
+    ctx.strokeStyle = "rgba(236, 224, 196, 0.95)";
+    ctx.lineWidth = 7;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, r * 1.85, r * 0.48, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+    return canvas;
+  }
+  if (id === "mars") {
+    const r = 22;
+    halo(ctx, cx, cy, r, r * 2.2, "rgba(214, 96, 64, 0.22)");
+    limbDisc(ctx, cx, cy, r, "#f0b090", "#c45a38", "#6a2c22");
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.fillStyle = "rgba(92, 36, 28, 0.45)";
+    ctx.beginPath();
+    ctx.ellipse(cx - 4, cy + 2, 8, 5, 0.4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "rgba(236, 220, 200, 0.35)";
+    ctx.beginPath();
+    ctx.ellipse(cx, cy - r * 0.72, 7, 3.2, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+    return canvas;
+  }
+  const palette: Record<string, [number, string, string, string, string]> = {
+    mercury: [16, "rgba(180,176,168,0.2)", "#d2cdc4", "#8d8880", "#4a4742"],
+    venus: [24, "rgba(255,236,190,0.45)", "#fff6e4", "#f0d7a4", "#c9a15a"],
+    uranus: [18, "rgba(150,210,214,0.28)", "#e7fffb", "#7ecfc8", "#2e6e74"],
+    neptune: [18, "rgba(110,140,220,0.28)", "#d5e4ff", "#5d7ed4", "#24366e"],
+  };
+  const row = palette[id] ?? palette.venus!;
+  const r = row[0];
+  halo(ctx, cx, cy, r, r * 2.3, row[1]);
+  limbDisc(ctx, cx, cy, r, row[2], row[3], row[4]);
+  return canvas;
 }
 
 export function paintDeepSky(obj: DeepSky): HTMLCanvasElement {

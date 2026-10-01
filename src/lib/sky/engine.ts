@@ -9,6 +9,7 @@ import {
   DEEP_SKY,
   paintDeepSky,
   paintMoonPhase,
+  paintWorld,
   solarSystem,
   type DeepSky,
   type SolarBody,
@@ -770,71 +771,35 @@ export class SkyEngine {
     this.figureMats.set(con.id, shader);
   }
 
-  private glowSprite(color: [number, number, number], core = 0.95) {
-    const c = document.createElement("canvas");
-    c.width = 128;
-    c.height = 128;
-    const ctx = c.getContext("2d")!;
-    const g = ctx.createRadialGradient(64, 64, 2, 64, 64, 62);
-    g.addColorStop(0, `rgba(${color[0] * 255},${color[1] * 255},${color[2] * 255},${core})`);
-    g.addColorStop(0.18, `rgba(${color[0] * 255},${color[1] * 255},${color[2] * 255},0.7)`);
-    g.addColorStop(0.42, `rgba(${color[0] * 255},${color[1] * 255},${color[2] * 255},0.22)`);
-    g.addColorStop(1, "rgba(0,0,0,0)");
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, 128, 128);
-    const tex = new THREE.CanvasTexture(c);
-    tex.colorSpace = THREE.SRGBColorSpace;
-    const mat = new THREE.SpriteMaterial({
-      map: tex,
-      transparent: true,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-    });
-    return new THREE.Sprite(mat);
-  }
-
   private buildBodies() {
-    const sun = this.glowSprite([1, 0.93, 0.72], 1);
-    sun.scale.setScalar(10);
-    this.bodyGroup.add(sun);
-    this.bodySprites.set("sun", sun);
-
+    const add = (id: string, scale: number) => {
+      const tex = new THREE.CanvasTexture(paintWorld(id));
+      tex.colorSpace = THREE.SRGBColorSpace;
+      const spr = new THREE.Sprite(
+        new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }),
+      );
+      spr.scale.setScalar(scale);
+      this.bodyGroup.add(spr);
+      this.bodySprites.set(id, spr);
+      return spr;
+    };
+    add("sun", 14);
+    const moonTex = new THREE.CanvasTexture(paintMoonPhase(0.7, true));
+    moonTex.colorSpace = THREE.SRGBColorSpace;
     const moon = new THREE.Sprite(
-      new THREE.SpriteMaterial({
-        map: new THREE.CanvasTexture(paintMoonPhase(0.7, true)),
-        transparent: true,
-        depthWrite: false,
-      }),
+      new THREE.SpriteMaterial({ map: moonTex, transparent: true, depthWrite: false }),
     );
-    moon.scale.setScalar(8.5);
+    moon.scale.setScalar(9.2);
     this.bodyGroup.add(moon);
     this.bodySprites.set("moon", moon);
     this.moonSprite = moon;
-
-    const colors: Record<string, [number, number, number]> = {
-      mercury: [0.72, 0.7, 0.66],
-      venus: [0.95, 0.88, 0.7],
-      mars: [0.92, 0.48, 0.32],
-      jupiter: [0.93, 0.82, 0.62],
-      saturn: [0.9, 0.82, 0.58],
-      uranus: [0.62, 0.86, 0.88],
-      neptune: [0.42, 0.58, 0.92],
-    };
-    const sizes: Record<string, number> = {
-      mercury: 3.2,
-      venus: 4.8,
-      mars: 3.8,
-      jupiter: 6.2,
-      saturn: 5.6,
-      uranus: 3.6,
-      neptune: 3.5,
-    };
-    for (const id of Object.keys(colors)) {
-      const spr = this.glowSprite(colors[id]!, 0.9);
-      spr.scale.setScalar(sizes[id] ?? 6);
-      this.bodyGroup.add(spr);
-      this.bodySprites.set(id, spr);
-    }
+    add("mercury", 3.4);
+    add("venus", 5.2);
+    add("mars", 4.2);
+    add("jupiter", 7.4);
+    add("saturn", 8.6);
+    add("uranus", 3.8);
+    add("neptune", 3.7);
   }
 
   private buildDeepSky() {
@@ -976,14 +941,22 @@ export class SkyEngine {
     ctx.fillStyle = "#07080c";
     ridge(168, 22, 0.007, 4.1);
     ctx.fillStyle = "#05060a";
-    for (let i = 0; i < 90; i++) {
-      const x = (i / 90) * 2048 + Math.sin(i * 3.1) * 12;
-      const h = 18 + (i % 5) * 7;
+    for (let i = 0; i < 70; i++) {
+      const x = (i / 70) * 2048 + Math.sin(i * 2.3) * 18;
+      const h = 10 + ((i * 17) % 9) * 4 + (i % 4 === 0 ? 16 : 0);
+      const w = 4 + (i % 3);
       ctx.beginPath();
-      ctx.moveTo(x - 7, 220);
-      ctx.lineTo(x, 220 - h);
-      ctx.lineTo(x + 7, 220);
+      ctx.moveTo(x - w, 232);
+      ctx.lineTo(x, 232 - h);
+      ctx.lineTo(x + w * 0.7, 232);
       ctx.fill();
+      if (i % 3 !== 0) {
+        ctx.beginPath();
+        ctx.moveTo(x - w * 1.5, 232 - h * 0.45);
+        ctx.lineTo(x, 232 - h * 0.72);
+        ctx.lineTo(x + w, 232 - h * 0.45);
+        ctx.fill();
+      }
     }
     const fade = ctx.createLinearGradient(0, 90, 0, 256);
     fade.addColorStop(0, "rgba(0,0,0,0)");
@@ -1021,7 +994,7 @@ export class SkyEngine {
       c.width = 128;
       c.height = 128;
       const ctx = c.getContext("2d")!;
-      ctx.fillStyle = "rgba(232,234,238,0.82)";
+      ctx.fillStyle = "rgba(214, 218, 224, 0.55)";
       ctx.font = "700 72px Outfit, sans-serif";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
@@ -1032,8 +1005,8 @@ export class SkyEngine {
         new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }),
       );
       const rad = az * DEG;
-      spr.position.set(Math.sin(rad) * 42, 2.4, -Math.cos(rad) * 42);
-      spr.scale.set(3.2, 3.2, 1);
+      spr.position.set(Math.sin(rad) * 46, 1.6, -Math.cos(rad) * 46);
+      spr.scale.set(2.15, 2.15, 1);
       group.add(spr);
     }
     return group;
@@ -1659,47 +1632,21 @@ export class SkyEngine {
 
   private makeBodyPresent(body: SolarBody) {
     const group = new THREE.Group();
-    const color = new THREE.Color().setRGB(...body.color);
-    if (body.id === "moon") {
-      const tex = new THREE.CanvasTexture(paintMoonPhase(body.phase, body.waxing));
-      tex.colorSpace = THREE.SRGBColorSpace;
-      const disc = new THREE.Mesh(
-        new THREE.CircleGeometry(0.72, 64),
-        new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide }),
-      );
-      group.add(disc);
-    } else {
-      const core = new THREE.Mesh(
-        new THREE.SphereGeometry(body.id === "sun" ? 0.55 : 0.42, 32, 32),
-        new THREE.MeshBasicMaterial({ color }),
-      );
-      group.add(core);
-      const glow = new THREE.Mesh(
-        new THREE.SphereGeometry(body.id === "sun" ? 0.95 : 0.7, 24, 24),
-        new THREE.MeshBasicMaterial({
-          color,
-          transparent: true,
-          opacity: 0.28,
-          depthWrite: false,
-          blending: THREE.AdditiveBlending,
-        }),
-      );
-      group.add(glow);
-      if (body.id === "saturn") {
-        const ring = new THREE.Mesh(
-          new THREE.RingGeometry(0.55, 0.95, 64),
-          new THREE.MeshBasicMaterial({
-            color: 0xd9c89a,
-            transparent: true,
-            opacity: 0.7,
-            side: THREE.DoubleSide,
-            depthWrite: false,
-          }),
-        );
-        ring.rotation.x = 1.15;
-        group.add(ring);
-      }
-    }
+    const tex = new THREE.CanvasTexture(
+      body.id === "moon" ? paintMoonPhase(body.phase, body.waxing) : paintWorld(body.id),
+    );
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const radius = body.id === "saturn" || body.id === "sun" ? 0.92 : 0.7;
+    const disc = new THREE.Mesh(
+      new THREE.CircleGeometry(radius, 64),
+      new THREE.MeshBasicMaterial({
+        map: tex,
+        transparent: true,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      }),
+    );
+    group.add(disc);
     return group;
   }
 
