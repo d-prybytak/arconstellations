@@ -25,8 +25,12 @@ import {
   DOME_VERTEX,
   FIGURE_FRAGMENT,
   FIGURE_VERTEX,
+  HAZE_FRAGMENT,
+  HAZE_VERTEX,
   LINE_FRAGMENT,
   LINE_VERTEX,
+  MILKY_FRAGMENT,
+  MILKY_VERTEX,
   STAR_FRAGMENT,
   STAR_VERTEX,
 } from "./shaders";
@@ -79,6 +83,7 @@ export class SkyEngine {
   private landscape: THREE.Mesh;
   private dome: THREE.Mesh;
   private milkyWay: THREE.Mesh;
+  private milkyMaterial!: THREE.ShaderMaterial;
   private cardinals: THREE.Group;
   private starsMesh: THREE.Points | null = null;
   private linesMesh: THREE.LineSegments | null = null;
@@ -188,9 +193,9 @@ export class SkyEngine {
       vertexShader: DOME_VERTEX,
       fragmentShader: DOME_FRAGMENT,
       uniforms: {
-        uZenith: { value: new THREE.Color(0x07080c) },
-        uHorizon: { value: new THREE.Color(0x121826) },
-        uGlow: { value: new THREE.Color(0x2a3a52) },
+        uZenith: { value: new THREE.Color(0x05070d) },
+        uHorizon: { value: new THREE.Color(0x1a2433) },
+        uGlow: { value: new THREE.Color(0x6d7c90) },
       },
       side: THREE.BackSide,
       depthWrite: false,
@@ -207,13 +212,14 @@ export class SkyEngine {
     this.scene.add(this.ground);
 
     this.horizon = new THREE.Mesh(
-      new THREE.RingGeometry(22, 64, 96),
-      new THREE.MeshBasicMaterial({
-        color: 0x243044,
+      new THREE.RingGeometry(18, 72, 128),
+      new THREE.ShaderMaterial({
+        vertexShader: HAZE_VERTEX,
+        fragmentShader: HAZE_FRAGMENT,
         transparent: true,
-        opacity: 0.42,
-        side: THREE.DoubleSide,
         depthWrite: false,
+        side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending,
       }),
     );
     this.horizon.rotation.x = -Math.PI / 2;
@@ -551,9 +557,11 @@ export class SkyEngine {
     if (this.lineMaterial) {
       this.lineMaterial.uniforms.uDim.value = dim;
       this.lineMaterial.uniforms.uHorizonClip.value = clip;
-      this.lineMaterial.uniforms.uColor.value.set(state.showFigures ? 0xc4b496 : 0x9aa3b0);
+      this.lineMaterial.uniforms.uColor.value.set(state.showFigures ? 0xaeb6c2 : 0xc5ccd6);
     }
     if (this.linesMesh) this.linesMesh.visible = state.showLines;
+    this.milkyMaterial.uniforms.uHorizonClip.value = clip;
+    this.milkyMaterial.uniforms.uDim.value = dim;
     this.figureGroup.visible = state.showFigures;
     this.bodyGroup.visible = state.showPlanets;
     this.dsoGroup.visible = state.magLimit >= 4.2;
@@ -836,50 +844,64 @@ export class SkyEngine {
   }
 
   private makeMilkyWay() {
-    const geo = new THREE.SphereGeometry(SKY_RADIUS * 0.995, 64, 32);
+    const geo = new THREE.SphereGeometry(SKY_RADIUS * 0.992, 96, 48);
     const canvas = document.createElement("canvas");
     canvas.width = 2048;
     canvas.height = 1024;
     const ctx = canvas.getContext("2d")!;
-    ctx.fillStyle = "#000";
-    ctx.fillRect(0, 0, 2048, 1024);
-    for (let i = 0; i < 5200; i++) {
-      const x = Math.random() * 2048;
-      const bulge = Math.exp(-Math.pow((x - 1100) / 420, 2));
-      const y = 512 + (Math.random() * 2 - 1) * (22 + Math.random() * 90) * (0.55 + bulge);
-      const a = (0.018 + Math.random() * 0.07) * (0.45 + bulge);
-      const r = 10 + Math.random() * 54;
-      const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-      g.addColorStop(0, `rgba(220,210,230,${a})`);
+    ctx.clearRect(0, 0, 2048, 1024);
+    const mid = 512;
+    for (let x = 0; x < 2048; x++) {
+      const u = x / 2048;
+      const bulge = Math.exp(-((u - 0.58) ** 2) / 0.008);
+      const warp = Math.sin(u * Math.PI * 2 * 1.15) * 10 + Math.sin(u * 17.0) * 4;
+      const half = 16 + bulge * 78 + Math.abs(Math.sin(u * 9.0)) * 6;
+      const dust = 0.72 + 0.28 * Math.sin(u * 46 + 1.2) * Math.sin(u * 11);
+      const alpha = (0.055 + bulge * 0.42) * dust;
+      const y0 = mid + warp - half;
+      const g = ctx.createLinearGradient(0, y0, 0, y0 + half * 2);
+      g.addColorStop(0, "rgba(0,0,0,0)");
+      g.addColorStop(0.42, `rgba(186, 190, 204, ${alpha * 0.55})`);
+      g.addColorStop(0.5, `rgba(232, 228, 236, ${alpha})`);
+      g.addColorStop(0.58, `rgba(186, 190, 204, ${alpha * 0.55})`);
       g.addColorStop(1, "rgba(0,0,0,0)");
       ctx.fillStyle = g;
-      ctx.fillRect(x - r, y - r, r * 2, r * 2);
+      ctx.fillRect(x, y0, 1, half * 2);
     }
     ctx.globalCompositeOperation = "destination-out";
-    for (let i = 0; i < 80; i++) {
-      const x = 900 + Math.random() * 500;
-      const y = 512 + (Math.random() * 2 - 1) * 70;
-      const r = 12 + Math.random() * 28;
+    for (let i = 0; i < 28; i++) {
+      const x = 980 + Math.random() * 420;
+      const y = mid + (Math.random() * 2 - 1) * 36;
+      const r = 8 + Math.random() * 22;
       const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-      g.addColorStop(0, "rgba(0,0,0,0.55)");
+      g.addColorStop(0, "rgba(0,0,0,0.72)");
       g.addColorStop(1, "rgba(0,0,0,0)");
       ctx.fillStyle = g;
-      ctx.fillRect(x - r, y - r, r * 2, r * 2);
+      ctx.beginPath();
+      ctx.ellipse(x, y, r * 1.8, r * 0.45, Math.random() * 0.6, 0, Math.PI * 2);
+      ctx.fill();
     }
     ctx.globalCompositeOperation = "source-over";
     const tex = new THREE.CanvasTexture(canvas);
     tex.colorSpace = THREE.SRGBColorSpace;
-    const mat = new THREE.MeshBasicMaterial({
-      map: tex,
-      side: THREE.BackSide,
+    tex.wrapS = THREE.RepeatWrapping;
+    this.milkyMaterial = new THREE.ShaderMaterial({
+      vertexShader: MILKY_VERTEX,
+      fragmentShader: MILKY_FRAGMENT,
+      uniforms: {
+        uMap: { value: tex },
+        uHorizonClip: { value: 0 },
+        uDim: { value: 0 },
+      },
       transparent: true,
-      opacity: 0.62,
       depthWrite: false,
+      side: THREE.BackSide,
       blending: THREE.AdditiveBlending,
     });
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.rotation.z = THREE.MathUtils.degToRad(62.87);
-    mesh.rotation.y = THREE.MathUtils.degToRad(192.86);
+    const mesh = new THREE.Mesh(geo, this.milkyMaterial);
+    mesh.rotation.z = THREE.MathUtils.degToRad(62.6);
+    mesh.rotation.y = THREE.MathUtils.degToRad(192.25);
+    mesh.frustumCulled = false;
     return mesh;
   }
 
@@ -917,10 +939,18 @@ export class SkyEngine {
       ctx.lineTo(x + 7, 220);
       ctx.fill();
     }
+    const fade = ctx.createLinearGradient(0, 90, 0, 256);
+    fade.addColorStop(0, "rgba(0,0,0,0)");
+    fade.addColorStop(0.22, "rgba(0,0,0,1)");
+    fade.addColorStop(1, "rgba(0,0,0,1)");
+    ctx.globalCompositeOperation = "destination-in";
+    ctx.fillStyle = fade;
+    ctx.fillRect(0, 0, 2048, 256);
+    ctx.globalCompositeOperation = "source-over";
     const tex = new THREE.CanvasTexture(canvas);
     tex.wrapS = THREE.RepeatWrapping;
     tex.colorSpace = THREE.SRGBColorSpace;
-    const geo = new THREE.CylinderGeometry(78, 78, 14, 64, 1, true);
+    const geo = new THREE.CylinderGeometry(78, 78, 14, 96, 1, true);
     const mat = new THREE.MeshBasicMaterial({
       map: tex,
       transparent: true,
