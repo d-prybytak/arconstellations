@@ -86,7 +86,7 @@ export class SkyEngine {
   private milkyMaterial!: THREE.ShaderMaterial;
   private cardinals: THREE.Group;
   private starsMesh: THREE.Points | null = null;
-  private linesMesh: THREE.LineSegments | null = null;
+  private linesMesh: THREE.Mesh | null = null;
   private starMaterial: THREE.ShaderMaterial | null = null;
   private lineMaterial: THREE.ShaderMaterial | null = null;
   private domeMaterial: THREE.ShaderMaterial;
@@ -143,6 +143,8 @@ export class SkyEngine {
   private deviceLive = false;
   private gotAbsolute = false;
   private orientListening = false;
+  private tether: THREE.Line;
+  private tetherPositions = new Float32Array(6);
   private bodies: SolarBody[] = [];
 
   constructor(opts: {
@@ -188,6 +190,20 @@ export class SkyEngine {
     this.skyGroup.add(this.dsoGroup);
     this.scene.add(this.presentGroup);
     this.presentGroup.frustumCulled = false;
+    const tetherGeo = new THREE.BufferGeometry();
+    tetherGeo.setAttribute("position", new THREE.BufferAttribute(this.tetherPositions, 3));
+    this.tether = new THREE.Line(
+      tetherGeo,
+      new THREE.LineBasicMaterial({
+        color: 0xd7dde6,
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+      }),
+    );
+    this.tether.frustumCulled = false;
+    this.tether.visible = false;
+    this.scene.add(this.tether);
 
     this.domeMaterial = new THREE.ShaderMaterial({
       vertexShader: DOME_VERTEX,
@@ -297,6 +313,8 @@ export class SkyEngine {
     this.lineMaterial?.dispose();
     this.starsMesh?.geometry.dispose();
     this.linesMesh?.geometry.dispose();
+    this.tether.geometry.dispose();
+    (this.tether.material as THREE.Material).dispose();
     this.ground.geometry.dispose();
     (this.ground.material as THREE.Material).dispose();
     this.horizon.geometry.dispose();
@@ -640,29 +658,57 @@ export class SkyEngine {
     this.skyGroup.add(this.starsMesh);
 
     const linePos: number[] = [];
+    const lineOther: number[] = [];
+    const lineSide: number[] = [];
+    const pushRibbon = (ax: number, ay: number, az: number, bx: number, by: number, bz: number) => {
+      const quad: [number, number, number, number, number, number, number][] = [
+        [ax, ay, az, bx, by, bz, -1],
+        [ax, ay, az, bx, by, bz, 1],
+        [bx, by, bz, ax, ay, az, -1],
+        [ax, ay, az, bx, by, bz, 1],
+        [bx, by, bz, ax, ay, az, 1],
+        [bx, by, bz, ax, ay, az, -1],
+      ];
+      for (const v of quad) {
+        linePos.push(v[0], v[1], v[2]);
+        lineOther.push(v[3], v[4], v[5]);
+        lineSide.push(v[6]);
+      }
+    };
     for (const con of catalog.constellations) {
       for (const path of con.paths) {
         for (let i = 0; i < path.length - 1; i++) {
           const a = equatorialToCartesian(path[i]![0], path[i]![1], SKY_RADIUS);
           const b = equatorialToCartesian(path[i + 1]![0], path[i + 1]![1], SKY_RADIUS);
-          linePos.push(a.x, a.y, a.z, b.x, b.y, b.z);
+          pushRibbon(a.x, a.y, a.z, b.x, b.y, b.z);
         }
       }
     }
     const lineGeo = new THREE.BufferGeometry();
     lineGeo.setAttribute("position", new THREE.Float32BufferAttribute(linePos, 3));
+    lineGeo.setAttribute("aOther", new THREE.Float32BufferAttribute(lineOther, 3));
+    lineGeo.setAttribute("aSide", new THREE.Float32BufferAttribute(lineSide, 1));
+    const pr = this.renderer.getPixelRatio();
     this.lineMaterial = new THREE.ShaderMaterial({
       vertexShader: LINE_VERTEX,
       fragmentShader: LINE_FRAGMENT,
       uniforms: {
-        uColor: { value: new THREE.Color(0xc4b496) },
+        uColor: { value: new THREE.Color(0xc5ccd6) },
         uDim: { value: 0 },
         uHorizonClip: { value: 0 },
+        uResolution: {
+          value: new THREE.Vector2(
+            (this.canvas.clientWidth || 1) * pr,
+            (this.canvas.clientHeight || 1) * pr,
+          ),
+        },
+        uWidth: { value: 2.4 },
       },
       transparent: true,
       depthWrite: false,
+      blending: THREE.AdditiveBlending,
     });
-    this.linesMesh = new THREE.LineSegments(lineGeo, this.lineMaterial);
+    this.linesMesh = new THREE.Mesh(lineGeo, this.lineMaterial);
     this.linesMesh.frustumCulled = false;
     this.skyGroup.add(this.linesMesh);
   }
@@ -1690,7 +1736,19 @@ export class SkyEngine {
     this.tmp3.copy(this.tmp).add(this.tmp2);
     this.presentGroup.position.lerpVectors(this.present.from, this.tmp3, u);
     this.presentGroup.quaternion.copy(this.tmpQ);
-    this.presentGroup.scale.setScalar(0.12 + 0.55 * u);
+    const kick = Math.sin(Math.min(this.present.t, 1) * Math.PI) * 0.07;
+    this.presentGroup.scale.setScalar(0.16 + 0.52 * u + kick * (1 - this.present.t));
+    this.tetherPositions[0] = this.present.from.x;
+    this.tetherPositions[1] = this.present.from.y;
+    this.tetherPositions[2] = this.present.from.z;
+    this.tetherPositions[3] = this.presentGroup.position.x;
+    this.tetherPositions[4] = this.presentGroup.position.y;
+    this.tetherPositions[5] = this.presentGroup.position.z;
+    const tetherAttr = this.tether.geometry.getAttribute("position") as THREE.BufferAttribute;
+    tetherAttr.needsUpdate = true;
+    const tetherMat = this.tether.material as THREE.LineBasicMaterial;
+    tetherMat.opacity = (1 - u) * 0.62;
+    this.tether.visible = u < 0.985;
     if (this.present.spinning && this.present.inner && this.present.t >= 1) {
       this.present.inner.rotateZ(dt * 0.18);
     }
@@ -1708,6 +1766,7 @@ export class SkyEngine {
       });
     }
     this.present = null;
+    this.tether.visible = false;
   }
 
   private setupControllers() {
@@ -1756,6 +1815,11 @@ export class SkyEngine {
     this.camera.aspect = w / Math.max(h, 1);
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(w, h, false);
+    const res = this.lineMaterial?.uniforms.uResolution?.value as THREE.Vector2 | undefined;
+    if (res) {
+      const pr = this.renderer.getPixelRatio();
+      res.set(w * pr, h * pr);
+    }
   }
 }
 

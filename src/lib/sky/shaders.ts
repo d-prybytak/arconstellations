@@ -47,14 +47,20 @@ void main() {
     horizon = smoothstep(-6.0, 10.0, world.y);
     air = smoothstep(-2.0, 32.0, world.y);
   }
-  vec4 mvPosition = viewMatrix * world;
-  gl_Position = projectionMatrix * mvPosition;
   float tw = 1.0;
   if (uTwinkle > 0.5) {
-    float speed = 0.55 + aPhase * 2.2;
-    tw = 0.78 + 0.22 * sin(uTime * speed + aPhase * 6.2831853);
-    tw *= 0.88 + 0.12 * sin(uTime * 0.17 + aPhase * 3.1);
+    float low = uHorizonClip > 0.5 ? (1.0 - air) * (1.0 - air) : 0.28;
+    float amp = mix(0.04, 0.42, low);
+    float s1 = sin(uTime * (0.85 + aPhase * 2.6) + aPhase * 6.2831853);
+    float s2 = sin(uTime * (0.21 + aPhase * 0.8) + aPhase * 3.1);
+    tw = (1.0 - amp * 0.55) + amp * 0.55 * s1;
+    tw *= 0.93 + 0.07 * s2;
+    float see = low * 2.4;
+    world.x += sin(uTime * 1.65 + aPhase * 41.0) * see;
+    world.z += cos(uTime * 1.28 + aPhase * 23.0) * see;
   }
+  vec4 mvPosition = viewMatrix * world;
+  gl_Position = projectionMatrix * mvPosition;
   float bright = mix(34.0, 1.05, smoothstep(-1.5, 6.2, aMag));
   float dist = max(0.12, -mvPosition.z);
   gl_PointSize = clamp(bright * tw * uPixelRatio * (140.0 / dist), 1.0, 42.0);
@@ -90,18 +96,31 @@ void main() {
 `;
 
 export const LINE_VERTEX = /* glsl */ `
+attribute vec3 aOther;
+attribute float aSide;
 uniform float uHorizonClip;
 uniform float uDim;
+uniform vec2 uResolution;
+uniform float uWidth;
 varying float vAlpha;
+varying float vAcross;
 
 void main() {
   vec4 world = modelMatrix * vec4(position, 1.0);
+  vec4 other = modelMatrix * vec4(aOther, 1.0);
   float horizon = 1.0;
   if (uHorizonClip > 0.5) {
-    horizon = smoothstep(-6.0, 16.0, world.y);
+    horizon = smoothstep(-6.0, 18.0, world.y);
   }
-  vAlpha = horizon * mix(0.34, 0.045, uDim);
-  gl_Position = projectionMatrix * viewMatrix * world;
+  vAlpha = horizon * mix(0.9, 0.07, uDim);
+  vAcross = aSide;
+  vec4 clip = projectionMatrix * viewMatrix * world;
+  vec4 clipO = projectionMatrix * viewMatrix * other;
+  vec2 dir = clipO.xy / max(clipO.w, 0.0001) - clip.xy / max(clip.w, 0.0001);
+  float len = length(dir);
+  vec2 perp = len < 0.00001 ? vec2(0.0, 1.0) : vec2(-dir.y, dir.x) / len;
+  clip.xy += perp * aSide * uWidth * (2.0 / max(uResolution, vec2(1.0))) * clip.w;
+  gl_Position = clip;
 }
 `;
 
@@ -109,8 +128,12 @@ export const LINE_FRAGMENT = /* glsl */ `
 precision mediump float;
 uniform vec3 uColor;
 varying float vAlpha;
+varying float vAcross;
 void main() {
-  gl_FragColor = vec4(uColor, vAlpha);
+  float core = exp(-vAcross * vAcross * 7.5);
+  float halo = exp(-vAcross * vAcross * 1.35) * 0.38;
+  float w = core + halo;
+  gl_FragColor = vec4(uColor, vAlpha * w);
 }
 `;
 
