@@ -706,52 +706,77 @@ export function paintDeepSky(obj: DeepSky): HTMLCanvasElement {
   c.width = s;
   c.height = s;
   const ctx = c.getContext("2d")!;
-  const [r, g, b] = obj.tint;
+  const R = Math.round(obj.tint[0] * 255);
+  const G = Math.round(obj.tint[1] * 255);
+  const B = Math.round(obj.tint[2] * 255);
   const cx = s / 2;
   const cy = s / 2;
+  const blob = (x: number, y: number, rad: number, a: number) => {
+    const grd = ctx.createRadialGradient(x, y, 0, x, y, rad);
+    grd.addColorStop(0, `rgba(${R},${G},${B},${a})`);
+    grd.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = grd;
+    ctx.beginPath();
+    ctx.arc(x, y, rad, 0, Math.PI * 2);
+    ctx.fill();
+  };
+
   if (obj.kind === "galaxy") {
     ctx.save();
     ctx.translate(cx, cy);
-    ctx.rotate(-0.7);
-    ctx.scale(1, 0.42);
-    const grd = ctx.createRadialGradient(0, 0, 4, 0, 0, 110);
-    grd.addColorStop(0, `rgba(${r * 255},${g * 255},${b * 255},0.55)`);
-    grd.addColorStop(0.35, `rgba(${r * 255},${g * 255},${b * 255},0.18)`);
-    grd.addColorStop(1, "rgba(0,0,0,0)");
-    ctx.fillStyle = grd;
+    ctx.rotate(obj.id === "LMC" ? 0.35 : -0.62);
+    ctx.scale(1, obj.id === "LMC" ? 0.7 : 0.36);
+    blob(0, 0, 108, 0.22);
+    ctx.strokeStyle = `rgba(${R},${G},${B},0.28)`;
+    ctx.lineWidth = 10;
     ctx.beginPath();
-    ctx.arc(0, 0, 110, 0, Math.PI * 2);
+    ctx.arc(8, 0, 52, 0.4, 2.5);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(-6, 0, 70, 3.4, 5.6);
+    ctx.stroke();
+    ctx.restore();
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(obj.id === "LMC" ? 0.35 : -0.62);
+    ctx.globalCompositeOperation = "destination-out";
+    ctx.fillStyle = "rgba(0,0,0,0.45)";
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 78, 3.5, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
-  } else if (obj.kind === "nebula") {
-    for (let i = 0; i < 14; i++) {
-      const x = cx + (Math.sin(i * 1.7) * 36);
-      const y = cy + (Math.cos(i * 1.3) * 28);
-      const rad = 28 + (i % 5) * 10;
-      const grd = ctx.createRadialGradient(x, y, 0, x, y, rad);
-      const a = 0.06 + (i % 3) * 0.03;
-      grd.addColorStop(0, `rgba(${r * 255},${g * 255},${b * 255},${a})`);
-      grd.addColorStop(1, "rgba(0,0,0,0)");
-      ctx.fillStyle = grd;
-      ctx.fillRect(x - rad, y - rad, rad * 2, rad * 2);
-    }
-  } else {
-    const grd = ctx.createRadialGradient(cx, cy, 0, cx, cy, 90);
-    grd.addColorStop(0, `rgba(${r * 255},${g * 255},${b * 255},0.5)`);
-    grd.addColorStop(0.4, `rgba(${r * 255},${g * 255},${b * 255},0.12)`);
-    grd.addColorStop(1, "rgba(0,0,0,0)");
-    ctx.fillStyle = grd;
+    blob(cx, cy, 22, 0.72);
+    blob(cx, cy, 8, 0.9);
+    return c;
+  }
+
+  if (obj.kind === "nebula") {
+    blob(cx, cy - 6, 52, 0.22);
+    blob(cx - 26, cy + 12, 36, 0.16);
+    blob(cx + 28, cy + 8, 30, 0.14);
+    blob(cx + 4, cy - 22, 18, 0.28);
+    ctx.save();
+    ctx.globalCompositeOperation = "destination-out";
+    ctx.fillStyle = "rgba(0,0,0,0.55)";
     ctx.beginPath();
-    ctx.arc(cx, cy, 90, 0, Math.PI * 2);
+    ctx.ellipse(cx + 6, cy + 4, 22, 6, 0.5, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = `rgba(${r * 255},${g * 255},${b * 255},0.55)`;
-    for (let i = 0; i < 40; i++) {
-      const ang = (i / 40) * Math.PI * 2;
-      const rad = (i % 7) * 7;
-      ctx.beginPath();
-      ctx.arc(cx + Math.cos(ang) * rad, cy + Math.sin(ang) * rad * 0.85, 1.1, 0, Math.PI * 2);
-      ctx.fill();
-    }
+    ctx.restore();
+    blob(cx - 2, cy - 4, 7, 0.55);
+    return c;
+  }
+
+  blob(cx, cy, 78, obj.id === "M45" ? 0.16 : 0.08);
+  for (let i = 0; i < 86; i++) {
+    const ang = i * 2.399963;
+    const rad = Math.sqrt(i / 86) * 72;
+    const x = cx + Math.cos(ang) * rad;
+    const y = cy + Math.sin(ang) * rad * 0.86;
+    const mag = i < 8 ? 2.4 : i < 24 ? 1.5 : 0.9;
+    ctx.fillStyle = `rgba(255,248,236,${i < 12 ? 0.9 : 0.55})`;
+    ctx.beginPath();
+    ctx.arc(x, y, mag, 0, Math.PI * 2);
+    ctx.fill();
   }
   return c;
 }

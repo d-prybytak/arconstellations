@@ -107,6 +107,8 @@ export class SkyEngine {
   private qMinusHalfX = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5));
   private lookYaw = 0.35;
   private lookPitch = 0.18;
+  private lookVelYaw = 0;
+  private lookVelPitch = 0;
   private fov = 68;
   private pointer: PointerMode = "idle";
   private lastPointer = { x: 0, y: 0, t: 0 };
@@ -539,6 +541,7 @@ export class SkyEngine {
     }
 
     this.syncFromStore(useSkyStore.getState(), tSec);
+    this.coastLook(dt);
     this.updatePresent(dt);
     this.updateLabels();
     if (!this.renderer.xr.isPresenting) this.applyLook();
@@ -1103,6 +1106,31 @@ export class SkyEngine {
     }
   }
 
+  private coastLook(dt: number) {
+    if (this.pointer !== "idle" || prefersReducedMotion()) {
+      if (this.pointer !== "idle") return;
+      this.lookVelYaw = 0;
+      this.lookVelPitch = 0;
+      return;
+    }
+    const state = useSkyStore.getState();
+    if (state.followDevice || this.renderer.xr.isPresenting) {
+      this.lookVelYaw = 0;
+      this.lookVelPitch = 0;
+      return;
+    }
+    if (Math.hypot(this.lookVelYaw, this.lookVelPitch) < 0.004) {
+      this.lookVelYaw = 0;
+      this.lookVelPitch = 0;
+      return;
+    }
+    this.lookYaw += this.lookVelYaw * dt;
+    this.lookPitch = Math.max(-1.2, Math.min(1.2, this.lookPitch + this.lookVelPitch * dt));
+    const damp = Math.exp(-2.4 * dt);
+    this.lookVelYaw *= damp;
+    this.lookVelPitch *= damp;
+  }
+
   private applyLook() {
     const follow = useSkyStore.getState().followDevice && this.deviceLive;
     if (follow) {
@@ -1144,6 +1172,8 @@ export class SkyEngine {
 
     this.pointer = "drag";
     this.moved = 0;
+    this.lookVelYaw = 0;
+    this.lookVelPitch = 0;
     this.lastPointer = { x: e.clientX, y: e.clientY, t: performance.now() };
   }
 
@@ -1166,9 +1196,13 @@ export class SkyEngine {
       const dy = e.clientY - this.lastPointer.y;
       this.moved += Math.abs(dx) + Math.abs(dy);
       const gain = useSkyStore.getState().followDevice ? 0.0035 : 0.005;
+      const now = performance.now();
+      const step = Math.max(0.008, (now - this.lastPointer.t) / 1000);
       this.lookYaw -= dx * gain;
       this.lookPitch = Math.max(-1.2, Math.min(1.2, this.lookPitch - dy * gain));
-      this.lastPointer = { x: e.clientX, y: e.clientY, t: this.lastPointer.t };
+      this.lookVelYaw = THREE.MathUtils.clamp((-dx * gain) / step, -1.35, 1.35);
+      this.lookVelPitch = THREE.MathUtils.clamp((-dy * gain) / step, -1.05, 1.05);
+      this.lastPointer = { x: e.clientX, y: e.clientY, t: now };
       const state = useSkyStore.getState();
       if (state.mode === "indoor" && e.shiftKey) {
         state.nudgeHeading(-dx * 0.12);
@@ -1493,39 +1527,60 @@ export class SkyEngine {
   private makeStarPresent(star: Star) {
     const group = new THREE.Group();
     const color = new THREE.Color().setRGB(...bvToRgb(star.bv));
-    const core = new THREE.Mesh(
-      new THREE.SphereGeometry(0.16, 32, 32),
-      new THREE.MeshBasicMaterial({ color }),
-    );
-    group.add(core);
-    const glow = new THREE.Mesh(
-      new THREE.SphereGeometry(0.42, 24, 24),
+    const s = 256;
+    const canvas = document.createElement("canvas");
+    canvas.width = s;
+    canvas.height = s;
+    const ctx = canvas.getContext("2d")!;
+    const rgb = `${Math.round(color.r * 255)},${Math.round(color.g * 255)},${Math.round(color.b * 255)}`;
+    const arm = (x0: number, y0: number, x1: number, y1: number) => {
+      const g = ctx.createLinearGradient(x0, y0, x1, y1);
+      g.addColorStop(0, "rgba(0,0,0,0)");
+      g.addColorStop(0.5, `rgba(${rgb},0.72)`);
+      g.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.strokeStyle = g;
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.moveTo(x0, y0);
+      ctx.lineTo(x1, y1);
+      ctx.stroke();
+    };
+    arm(128, 6, 128, 250);
+    arm(6, 128, 250, 128);
+    const halo = ctx.createRadialGradient(128, 128, 4, 128, 128, 78);
+    halo.addColorStop(0, `rgba(${rgb},0.55)`);
+    halo.addColorStop(0.35, `rgba(${rgb},0.12)`);
+    halo.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = halo;
+    ctx.beginPath();
+    ctx.arc(128, 128, 78, 0, Math.PI * 2);
+    ctx.fill();
+    const core = ctx.createRadialGradient(128, 128, 0, 128, 128, 14);
+    core.addColorStop(0, "#fffaf2");
+    core.addColorStop(0.35, `rgba(${rgb},1)`);
+    core.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = core;
+    ctx.beginPath();
+    ctx.arc(128, 128, 14, 0, Math.PI * 2);
+    ctx.fill();
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const plate = new THREE.Mesh(
+      new THREE.PlaneGeometry(1.55, 1.55),
       new THREE.MeshBasicMaterial({
-        color,
+        map: tex,
         transparent: true,
-        opacity: 0.32,
         depthWrite: false,
         blending: THREE.AdditiveBlending,
       }),
     );
-    group.add(glow);
-    const halo = new THREE.Mesh(
-      new THREE.SphereGeometry(0.85, 24, 24),
-      new THREE.MeshBasicMaterial({
-        color,
-        transparent: true,
-        opacity: 0.1,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending,
-      }),
-    );
-    group.add(halo);
+    group.add(plate);
     const ring = new THREE.Mesh(
-      new THREE.RingGeometry(0.7, 0.76, 64),
+      new THREE.RingGeometry(0.72, 0.755, 64),
       new THREE.MeshBasicMaterial({
         color: 0xc5ccd6,
         transparent: true,
-        opacity: 0.45,
+        opacity: 0.4,
         side: THREE.DoubleSide,
         depthWrite: false,
       }),
