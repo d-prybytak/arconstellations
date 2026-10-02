@@ -100,6 +100,8 @@ export class SkyEngine {
   private tmp3 = new THREE.Vector3();
   private tmpQ = new THREE.Quaternion();
   private sunDir = new THREE.Vector3(0, 0.2, -1);
+  private moonDir = new THREE.Vector3(0, 0.4, 1);
+  private ecliptic = new THREE.Vector3(0, 1, 0);
   private qLst = new THREE.Quaternion();
   private qLat = new THREE.Quaternion();
   private qHead = new THREE.Quaternion();
@@ -255,11 +257,14 @@ export class SkyEngine {
         uGlow: { value: new THREE.Color(0x6d7c90) },
         uSunDir: { value: this.sunDir },
         uSunGlow: { value: 0.2 },
+        uMoonDir: { value: this.moonDir },
+        uMoonGlow: { value: 0 },
+        uEcliptic: { value: this.ecliptic },
       },
       side: THREE.BackSide,
       depthWrite: false,
     });
-    this.dome = new THREE.Mesh(new THREE.SphereGeometry(900, 48, 32), this.domeMaterial);
+    this.dome = new THREE.Mesh(new THREE.SphereGeometry(900, 96, 64), this.domeMaterial);
     this.scene.add(this.dome);
 
     this.ground = new THREE.Mesh(
@@ -270,6 +275,8 @@ export class SkyEngine {
         uniforms: {
           uSunDir: { value: this.sunDir },
           uSunGlow: { value: 0.2 },
+          uMoonDir: { value: this.moonDir },
+          uMoonGlow: { value: 0 },
           uAlpha: { value: 0.78 },
         },
         transparent: true,
@@ -675,16 +682,16 @@ export class SkyEngine {
     this.dome.visible = !state.xrActive;
     const floor = this.ground.material as THREE.ShaderMaterial;
     floor.uniforms.uAlpha.value = outdoor ? 0.94 : 0.78;
-    this.paintSun();
+    this.paintLights();
     this.labelsEl.style.opacity = state.showNames && !state.xrActive ? "1" : "0";
   }
 
-  private paintSun() {
+  private paintLights() {
     const sun = this.bodySprites.get("sun");
     if (!sun) return;
     sun.getWorldPosition(this.sunDir);
-    const len = this.sunDir.length() || 1;
-    this.sunDir.multiplyScalar(1 / len);
+    const sunLen = this.sunDir.length() || 1;
+    this.sunDir.multiplyScalar(1 / sunLen);
     const alt = Math.asin(Math.max(-1, Math.min(1, this.sunDir.y)));
     const dusk = Math.exp(-((alt - 0.02) ** 2) / 0.05);
     const day = Math.max(0, alt) * 0.35;
@@ -692,6 +699,22 @@ export class SkyEngine {
     this.domeMaterial.uniforms.uSunGlow.value = glow;
     (this.ground.material as THREE.ShaderMaterial).uniforms.uSunGlow.value = glow;
     (this.horizon.material as THREE.ShaderMaterial).uniforms.uSunGlow.value = glow;
+
+    const moonSpr = this.bodySprites.get("moon");
+    if (moonSpr) {
+      moonSpr.getWorldPosition(this.moonDir);
+      const moonLen = this.moonDir.length() || 1;
+      this.moonDir.multiplyScalar(1 / moonLen);
+    }
+    const moon = this.bodies.find((b) => b.id === "moon");
+    const lit = moon ? 0.2 + 0.8 * moon.phase : 0;
+    const malt = Math.asin(Math.max(-1, Math.min(1, this.moonDir.y)));
+    const moonGlow = malt > -0.04 ? lit : 0;
+    this.domeMaterial.uniforms.uMoonGlow.value = moonGlow;
+    (this.ground.material as THREE.ShaderMaterial).uniforms.uMoonGlow.value = moonGlow;
+
+    const pole = equatorialToCartesian(270, 66.560708, 1);
+    this.ecliptic.set(pole.x, pole.y, pole.z).applyQuaternion(this.skyGroup.quaternion);
   }
 
   private orientSky(state: ReturnType<typeof useSkyStore.getState>) {

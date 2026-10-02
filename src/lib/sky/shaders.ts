@@ -195,6 +195,9 @@ uniform vec3 uHorizon;
 uniform vec3 uGlow;
 uniform vec3 uSunDir;
 uniform float uSunGlow;
+uniform vec3 uMoonDir;
+uniform float uMoonGlow;
+uniform vec3 uEcliptic;
 void main() {
   vec3 n = normalize(vWorld);
   float h = clamp(n.y, -1.0, 1.0);
@@ -205,13 +208,31 @@ void main() {
   col += uGlow * limb * 0.85;
   float air = exp(-pow((alt - 0.22) * 5.5, 2.0));
   col += vec3(0.10, 0.14, 0.18) * air;
-  float face = max(dot(n, normalize(uSunDir)), 0.0);
+  vec3 sun = normalize(uSunDir);
+  float face = max(dot(n, sun), 0.0);
   float corona = pow(face, 22.0);
-  float dusk = pow(face, 3.2) * smoothstep(0.42, -0.02, uSunDir.y);
+  float dusk = pow(face, 3.2) * smoothstep(0.42, -0.02, sun.y);
   col += vec3(1.0, 0.93, 0.82) * corona * uSunGlow * 0.55;
   col += vec3(0.85, 0.42, 0.22) * dusk * uSunGlow * 0.42;
   float below = smoothstep(0.012, -0.08, h);
   col = mix(col, vec3(0.012, 0.014, 0.018), below);
+
+  float sky = 1.0 - below;
+  vec3 moon = normalize(uMoonDir);
+  float md = acos(clamp(dot(n, moon), -1.0, 1.0));
+  float aureole = exp(-md * md * 12.0);
+  float ring = exp(-pow((md - 0.384) * 28.0, 2.0));
+  float moonUp = smoothstep(-0.02, 0.08, moon.y);
+  col += vec3(0.75, 0.82, 0.96) * aureole * uMoonGlow * 0.38 * moonUp * sky;
+  col += vec3(0.86, 0.89, 0.96) * ring * uMoonGlow * 0.22 * moonUp * sky;
+
+  float beta = dot(n, normalize(uEcliptic));
+  float onEcl = exp(-beta * beta * 70.0);
+  float fromSun = max(dot(n, sun), 0.0);
+  float duskGate = 1.0 - smoothstep(-0.05, 0.32, sun.y);
+  float wedge = onEcl * pow(fromSun, 1.45) * duskGate;
+  col += vec3(0.86, 0.68, 0.42) * wedge * uSunGlow * 0.34 * sky;
+
   gl_FragColor = vec4(col, 1.0);
 }
 `;
@@ -257,6 +278,8 @@ precision mediump float;
 varying vec3 vWorld;
 uniform vec3 uSunDir;
 uniform float uSunGlow;
+uniform vec3 uMoonDir;
+uniform float uMoonGlow;
 uniform float uAlpha;
 void main() {
   float r = length(vWorld.xz) / 90.0;
@@ -266,6 +289,10 @@ void main() {
   float along = dot(normalize(vWorld.xz + vec2(0.001)), sun);
   float pool = smoothstep(0.25, 1.0, along) * exp(-r * 1.6) * max(uSunDir.y, 0.0);
   col += vec3(0.20, 0.14, 0.08) * pool * uSunGlow;
+  vec2 moon = normalize(uMoonDir.xz + vec2(0.0001));
+  float malong = dot(normalize(vWorld.xz + vec2(0.001)), moon);
+  float mpool = smoothstep(0.4, 1.0, malong) * exp(-r * 2.1) * max(uMoonDir.y, 0.0);
+  col += vec3(0.09, 0.11, 0.16) * mpool * uMoonGlow;
   gl_FragColor = vec4(col, uAlpha * disc);
 }
 `;
