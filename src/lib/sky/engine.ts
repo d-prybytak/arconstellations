@@ -162,6 +162,8 @@ export class SkyEngine {
   private pointerNdcX = 0;
   private pointerNdcY = 0;
   private hoverConId = "";
+  private glowSprites: THREE.Sprite[] = [];
+  private glowTexture: THREE.CanvasTexture | null = null;
   private conIndex = new Map<string, number>();
   private ndc = new THREE.Vector2();
   private bodies: SolarBody[] = [];
@@ -375,6 +377,8 @@ export class SkyEngine {
     this.ro?.disconnect();
     this.starMaterial?.dispose();
     this.lineMaterial?.dispose();
+    this.glowTexture?.dispose();
+    for (const spr of this.glowSprites) spr.material.dispose();
     this.starsMesh?.geometry.dispose();
     this.linesMesh?.geometry.dispose();
     this.tether.geometry.dispose();
@@ -683,6 +687,7 @@ export class SkyEngine {
     const floor = this.ground.material as THREE.ShaderMaterial;
     floor.uniforms.uAlpha.value = outdoor ? 0.94 : 0.78;
     this.paintLights();
+    this.syncGlows(state, tSec);
     this.labelsEl.style.opacity = state.showNames && !state.xrActive ? "1" : "0";
   }
 
@@ -842,6 +847,86 @@ export class SkyEngine {
     this.linesMesh = new THREE.Mesh(lineGeo, this.lineMaterial);
     this.linesMesh.frustumCulled = false;
     this.skyGroup.add(this.linesMesh);
+    this.addStarGlows(catalog);
+  }
+
+  private addStarGlows(catalog: SkyCatalog) {
+    const canvas = document.createElement("canvas");
+    canvas.width = 128;
+    canvas.height = 128;
+    const ctx = canvas.getContext("2d")!;
+    const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+    g.addColorStop(0, "rgba(255,255,255,0.42)");
+    g.addColorStop(0.22, "rgba(255,255,255,0.30)");
+    g.addColorStop(0.55, "rgba(255,255,255,0.08)");
+    g.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 128, 128);
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    this.glowTexture = tex;
+
+    const bright = catalog.stars
+      .filter((s) => s.mag <= 1.05)
+      .sort((a, b) => a.mag - b.mag)
+      .slice(0, 24);
+    for (const star of bright) {
+      const p = equatorialToCartesian(star.ra, star.dec, SKY_RADIUS * 0.996);
+      const color = new THREE.Color().setRGB(...bvToRgb(star.bv));
+      const hsl = { h: 0, s: 0, l: 0 };
+      color.getHSL(hsl);
+      color.setHSL(hsl.h, Math.min(1, hsl.s * 1.7 + 0.12), Math.min(0.62, hsl.l));
+      const mat = new THREE.SpriteMaterial({
+        map: tex,
+        color,
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        opacity: 0.9,
+      });
+      const spr = new THREE.Sprite(mat);
+      spr.position.set(p.x, p.y, p.z);
+      const t = Math.max(0, Math.min(1, (star.mag + 1.5) / 2.55));
+      const size = 150 * (1 - t) + 64 * t;
+      spr.scale.set(size, size, 1);
+      spr.frustumCulled = false;
+      spr.renderOrder = 1;
+      spr.userData.con = star.con ?? "";
+      spr.userData.phase = Math.abs(Math.sin(star.hip * 12.9898) * 43758.5453) % 1;
+      this.skyGroup.add(spr);
+      this.glowSprites.push(spr);
+    }
+  }
+
+  private syncGlows(state: ReturnType<typeof useSkyStore.getState>, tSec: number) {
+    if (this.glowSprites.length === 0) return;
+    const outdoor = state.mode === "outdoor" && !state.xrActive;
+    const dim = state.selected ? 1 : 0;
+    const hot =
+      state.selected?.kind === "constellation"
+        ? state.selected.id
+        : state.selected?.kind === "star"
+          ? (state.selected.con ?? "")
+          : this.hoverConId;
+    const breathe = !prefersReducedMotion();
+    for (const spr of this.glowSprites) {
+      const mat = spr.material;
+      const con = spr.userData.con as string;
+      let o = 0.92;
+      if (dim) o = 0.14;
+      else if (hot) o = con === hot ? 1 : 0.2;
+      if (breathe) {
+        const phase = spr.userData.phase as number;
+        o *= 0.9 + 0.1 * Math.sin(tSec * (0.55 + phase) + phase * 6.2);
+      }
+      mat.opacity = o;
+      if (outdoor || state.xrActive) {
+        spr.getWorldPosition(this.tmp);
+        spr.visible = this.tmp.y > (state.xrActive ? -2 : -6);
+      } else {
+        spr.visible = true;
+      }
+    }
   }
 
   private queueFigures(catalog: SkyCatalog) {
@@ -1403,7 +1488,7 @@ export class SkyEngine {
     if (e.key === "ArrowLeft") this.lookYaw += step;
     if (e.key === "ArrowRight") this.lookYaw -= step;
     if (e.key === "ArrowUp") this.lookPitch = Math.min(1.2, this.lookPitch + step);
-    if (e.key === "ArrowDown") this.lookPitch = Math.max(-1.2, this.lookPitch + step);
+    if (e.key === "ArrowDown") this.lookPitch = Math.max(-1.2, this.lookPitch - step);
   }
 
   private hoverAt(ndcX: number, ndcY: number) {
