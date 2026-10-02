@@ -9,6 +9,7 @@ import {
   DEEP_SKY,
   paintDeepSky,
   paintMoonPhase,
+  paintPlanetMap,
   paintWorld,
   solarSystem,
   type DeepSky,
@@ -133,6 +134,8 @@ export class SkyEngine {
     duration: number;
     from: THREE.Vector3;
     spinning: boolean;
+    spin: "y" | "z";
+    rate: number;
     inner: THREE.Object3D | null;
   } | null = null;
   private labelNodes = new Map<string, HTMLDivElement>();
@@ -203,6 +206,7 @@ export class SkyEngine {
       2400,
     );
     this.camera.position.set(0, 1.6, 0);
+    this.camera.layers.enable(1);
     this.applyLook();
 
     this.scene.add(this.skyGroup);
@@ -547,6 +551,8 @@ export class SkyEngine {
         duration: 1.7,
         from,
         spinning: true,
+        spin: "z",
+        rate: 0.18,
         inner: group,
       };
     } else if (selected.kind === "constellation") {
@@ -561,6 +567,8 @@ export class SkyEngine {
         duration: 2.05,
         from,
         spinning: true,
+        spin: "z",
+        rate: 0.12,
         inner: group,
       };
     } else if (selected.kind === "body") {
@@ -574,8 +582,10 @@ export class SkyEngine {
         t: reduced ? 1 : 0,
         duration: 1.6,
         from,
-        spinning: selected.id !== "moon",
-        inner: group,
+        spinning: true,
+        spin: "y",
+        rate: selected.id === "moon" ? 0.05 : selected.id === "sun" ? 0.1 : 0.42,
+        inner: group.userData.spin as THREE.Object3D,
       };
     } else {
       const dso = DEEP_SKY.find((d) => d.id === selected.id);
@@ -589,6 +599,8 @@ export class SkyEngine {
         duration: 1.8,
         from,
         spinning: true,
+        spin: "z",
+        rate: 0.16,
         inner: group,
       };
     }
@@ -616,6 +628,9 @@ export class SkyEngine {
     this.updateLabels();
     if (!this.renderer.xr.isPresenting) this.applyLook();
     this.camera.updateMatrixWorld();
+    const eye = this.activeCamera();
+    eye.layers.enable(1);
+    eye.traverse((obj) => (obj as THREE.Camera).layers?.enable(1));
     this.updateAim(dt);
     if (time - this.lastAzPub > 220) {
       this.lastAzPub = time;
@@ -1976,21 +1991,84 @@ export class SkyEngine {
 
   private makeBodyPresent(body: SolarBody) {
     const group = new THREE.Group();
-    const tex = new THREE.CanvasTexture(
-      body.id === "moon" ? paintMoonPhase(body.phase, body.waxing) : paintWorld(body.id),
+    const map = new THREE.CanvasTexture(paintPlanetMap(body.id));
+    map.colorSpace = THREE.SRGBColorSpace;
+    map.wrapS = THREE.RepeatWrapping;
+    const lit = body.id !== "sun";
+    const radius = body.id === "saturn" ? 0.5 : body.id === "sun" ? 0.72 : 0.64;
+    const sphere = new THREE.Mesh(
+      new THREE.SphereGeometry(radius, 48, 32),
+      lit
+        ? new THREE.MeshLambertMaterial({ map })
+        : new THREE.MeshBasicMaterial({ map }),
     );
-    tex.colorSpace = THREE.SRGBColorSpace;
-    const radius = body.id === "saturn" || body.id === "sun" ? 0.92 : 0.7;
-    const disc = new THREE.Mesh(
-      new THREE.CircleGeometry(radius, 64),
-      new THREE.MeshBasicMaterial({
-        map: tex,
+    sphere.layers.set(1);
+    if (body.id === "jupiter") sphere.scale.y = 0.94;
+
+    const tilt = new THREE.Group();
+    tilt.rotation.z = body.id === "saturn" ? 0.68 : 0.15;
+    tilt.rotation.x = 0.2;
+    const spin = new THREE.Group();
+    tilt.add(spin);
+    spin.add(sphere);
+
+    if (body.id === "saturn") {
+      const ring = (inner: number, outer: number, color: number, opacity: number) => {
+        const mesh = new THREE.Mesh(
+          new THREE.RingGeometry(inner, outer, 96),
+          new THREE.MeshBasicMaterial({
+            color,
+            transparent: true,
+            opacity,
+            side: THREE.DoubleSide,
+            depthWrite: false,
+          }),
+        );
+        mesh.rotation.x = Math.PI / 2;
+        return mesh;
+      };
+      spin.add(ring(0.78, 1.12, 0xe7d7b4, 0.92));
+      spin.add(ring(1.2, 1.62, 0xf3e6cc, 0.84));
+    }
+
+    if (lit) {
+      const phaseAng = Math.acos(Math.max(-1, Math.min(1, 1 - 2 * (body.id === "moon" ? body.phase : 1))));
+      const side = body.waxing ? 1 : -1;
+      const key = new THREE.DirectionalLight(body.id === "moon" ? 0xf4f1ea : 0xfff6ea, 3.1);
+      key.layers.set(1);
+      key.position.set(side * Math.sin(phaseAng) * 3, 0.55, -Math.cos(phaseAng) * 3);
+      key.target.position.set(0, 0, 0);
+      const amb = new THREE.AmbientLight(body.id === "moon" ? 0x8d97a8 : 0xb7c0cc, body.id === "moon" ? 0.16 : 0.42);
+      amb.layers.set(1);
+      group.add(key, key.target, amb);
+    }
+
+    const glow = document.createElement("canvas");
+    glow.width = 128;
+    glow.height = 128;
+    const gctx = glow.getContext("2d")!;
+    const g = gctx.createRadialGradient(64, 64, 18, 64, 64, 64);
+    const glowAlpha = body.id === "sun" ? 0.85 : body.id === "venus" ? 0.4 : 0.2;
+    g.addColorStop(0, `rgba(255,255,255,${glowAlpha})`);
+    g.addColorStop(1, "rgba(255,255,255,0)");
+    gctx.fillStyle = g;
+    gctx.fillRect(0, 0, 128, 128);
+    const glowTex = new THREE.CanvasTexture(glow);
+    glowTex.colorSpace = THREE.SRGBColorSpace;
+    const halo = new THREE.Sprite(
+      new THREE.SpriteMaterial({
+        map: glowTex,
+        color: new THREE.Color().setRGB(body.color[0], body.color[1], body.color[2]),
         transparent: true,
-        side: THREE.DoubleSide,
         depthWrite: false,
+        blending: THREE.AdditiveBlending,
       }),
     );
-    group.add(disc);
+    halo.scale.setScalar(body.id === "sun" ? 3.1 : radius * 3.4);
+    halo.renderOrder = 0;
+    sphere.renderOrder = 1;
+    group.add(halo, tilt);
+    group.userData.spin = spin;
     return group;
   }
 
@@ -2041,7 +2119,8 @@ export class SkyEngine {
     tetherMat.opacity = (1 - u) * 0.62;
     this.tether.visible = u < 0.985;
     if (this.present.spinning && this.present.inner && this.present.t >= 1) {
-      this.present.inner.rotateZ(dt * 0.18);
+      const axis = this.present.spin === "y" ? this.yAxis : this.zAxis;
+      this.present.inner.rotateOnAxis(axis, dt * this.present.rate);
     }
   }
 
@@ -2050,10 +2129,13 @@ export class SkyEngine {
       const child = this.presentGroup.children.pop()!;
       child.traverse((obj) => {
         const mesh = obj as THREE.Mesh;
-        if (mesh.geometry) mesh.geometry.dispose();
-        const mat = mesh.material as THREE.Material | THREE.Material[] | undefined;
-        if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
-        else mat?.dispose();
+        mesh.geometry?.dispose();
+        const mats = mesh.material as THREE.Material | THREE.Material[] | undefined;
+        if (!mats) return;
+        for (const m of Array.isArray(mats) ? mats : [mats]) {
+          (m as THREE.MeshLambertMaterial).map?.dispose();
+          m.dispose();
+        }
       });
     }
     this.present = null;

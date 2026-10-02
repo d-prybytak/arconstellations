@@ -482,6 +482,123 @@ export function searchDeepSky(q: string): DeepSky[] {
   );
 }
 
+export function paintPlanetMap(id: string): HTMLCanvasElement {
+  const w = 512;
+  const h = 256;
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d")!;
+  const band = (y0: number, y1: number, color: string) => {
+    ctx.fillStyle = color;
+    ctx.fillRect(0, y0 * h, w, (y1 - y0) * h + 1);
+  };
+  const blot = (x: number, y: number, rx: number, ry: number, color: string, rot = 0) => {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.ellipse(x * w, y * h, rx, ry, rot, 0, Math.PI * 2);
+    ctx.fill();
+  };
+
+  if (id === "sun") {
+    ctx.fillStyle = "#f0b85a";
+    ctx.fillRect(0, 0, w, h);
+    for (let i = 0; i < 90; i++) {
+      ctx.fillStyle = i % 2 === 0 ? "rgba(255,236,196,0.4)" : "rgba(176,78,24,0.28)";
+      blot(Math.random(), Math.random(), 10 + Math.random() * 36, 8 + Math.random() * 20, ctx.fillStyle, Math.random());
+    }
+    return canvas;
+  }
+
+  if (id === "jupiter") {
+    ctx.fillStyle = "#e4cfae";
+    ctx.fillRect(0, 0, w, h);
+    band(0, 0.07, "#f6ead2");
+    band(0.07, 0.16, "#c9a06e");
+    band(0.16, 0.27, "#f4ecdc");
+    band(0.27, 0.36, "#d7b07a");
+    band(0.36, 0.48, "#f7f1e4");
+    band(0.48, 0.6, "#b07d48");
+    band(0.6, 0.72, "#e7d2aa");
+    band(0.72, 0.84, "#c49262");
+    band(0.84, 1, "#f3e6cc");
+    blot(0.62, 0.62, 34, 20, "#9a4030", -0.25);
+    blot(0.64, 0.6, 14, 8, "rgba(255,220,190,0.35)", -0.25);
+    return canvas;
+  }
+
+  if (id === "saturn") {
+    ctx.fillStyle = "#ecd9ae";
+    ctx.fillRect(0, 0, w, h);
+    band(0.18, 0.28, "#f6ead0");
+    band(0.42, 0.5, "#e2c892");
+    band(0.62, 0.7, "#f3e4c4");
+    band(0.78, 0.86, "#d7bc8c");
+    return canvas;
+  }
+
+  if (id === "mars") {
+    ctx.fillStyle = "#c45c3a";
+    ctx.fillRect(0, 0, w, h);
+    blot(0.32, 0.48, 70, 36, "rgba(92, 36, 28, 0.45)", 0.4);
+    blot(0.7, 0.58, 40, 22, "rgba(120, 48, 32, 0.35)", -0.2);
+    band(0, 0.08, "rgba(236, 220, 200, 0.55)");
+    band(0.92, 1, "rgba(236, 220, 200, 0.45)");
+    return canvas;
+  }
+
+  if (id === "moon") {
+    ctx.fillStyle = "#c9c3b6";
+    ctx.fillRect(0, 0, w, h);
+    const maria: [number, number, number, number][] = [
+      [0.32, 0.46, 78, 46],
+      [0.55, 0.42, 48, 30],
+      [0.22, 0.58, 36, 24],
+      [0.72, 0.55, 28, 18],
+      [0.48, 0.64, 40, 16],
+    ];
+    ctx.fillStyle = "rgba(86, 84, 78, 0.5)";
+    for (const [x, y, rx, ry] of maria) blot(x, y, rx, ry, "rgba(86, 84, 78, 0.5)", 0.3);
+    ctx.strokeStyle = "rgba(92, 88, 80, 0.45)";
+    ctx.lineWidth = 1.5;
+    for (let i = 0; i < 18; i++) {
+      ctx.beginPath();
+      ctx.arc((0.08 + (i * 0.17) % 0.9) * w, (0.15 + (i * 0.13) % 0.7) * h, 4 + (i % 5) * 2, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    return canvas;
+  }
+
+  if (id === "venus") {
+    ctx.fillStyle = "#f3ddb0";
+    ctx.fillRect(0, 0, w, h);
+    ctx.strokeStyle = "rgba(255, 248, 230, 0.45)";
+    ctx.lineWidth = 10;
+    for (let i = 0; i < 7; i++) {
+      ctx.beginPath();
+      ctx.moveTo(0, (0.15 + i * 0.12) * h);
+      ctx.bezierCurveTo(w * 0.3, (0.05 + i * 0.12) * h, w * 0.6, (0.24 + i * 0.1) * h, w, (0.12 + i * 0.12) * h);
+      ctx.stroke();
+    }
+    return canvas;
+  }
+
+  const tones: Record<string, [string, string]> = {
+    mercury: ["#b7b2a8", "rgba(70, 66, 60, 0.35)"],
+    uranus: ["#d5f4f0", "rgba(90, 180, 176, 0.35)"],
+    neptune: ["#6d8ee0", "rgba(20, 40, 110, 0.4)"],
+  };
+  const tone = tones[id] ?? tones.mercury!;
+  ctx.fillStyle = tone[0];
+  ctx.fillRect(0, 0, w, h);
+  if (id === "neptune" || id === "uranus") band(0.42, 0.52, tone[1]);
+  if (id === "mercury") {
+    ctx.fillStyle = tone[1];
+    for (let i = 0; i < 14; i++) blot(Math.random(), Math.random(), 8 + Math.random() * 18, 6 + Math.random() * 12, tone[1]);
+  }
+  return canvas;
+}
+
 export function paintMoonPhase(phase: number, waxing: boolean): HTMLCanvasElement {
   const s = 256;
   const c = document.createElement("canvas");
