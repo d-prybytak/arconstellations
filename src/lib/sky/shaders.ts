@@ -193,6 +193,8 @@ varying vec3 vWorld;
 uniform vec3 uZenith;
 uniform vec3 uHorizon;
 uniform vec3 uGlow;
+uniform vec3 uSunDir;
+uniform float uSunGlow;
 void main() {
   vec3 n = normalize(vWorld);
   float h = clamp(n.y, -1.0, 1.0);
@@ -203,6 +205,11 @@ void main() {
   col += uGlow * limb * 0.85;
   float air = exp(-pow((alt - 0.22) * 5.5, 2.0));
   col += vec3(0.10, 0.14, 0.18) * air;
+  float face = max(dot(n, normalize(uSunDir)), 0.0);
+  float corona = pow(face, 22.0);
+  float dusk = pow(face, 3.2) * smoothstep(0.42, -0.02, uSunDir.y);
+  col += vec3(1.0, 0.93, 0.82) * corona * uSunGlow * 0.55;
+  col += vec3(0.85, 0.42, 0.22) * dusk * uSunGlow * 0.42;
   float below = smoothstep(0.012, -0.08, h);
   col = mix(col, vec3(0.012, 0.014, 0.018), below);
   gl_FragColor = vec4(col, 1.0);
@@ -210,21 +217,56 @@ void main() {
 `;
 
 export const HAZE_VERTEX = /* glsl */ `
-varying vec2 vUv;
+varying vec3 vWorld;
 void main() {
-  vUv = uv;
-  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  vec4 world = modelMatrix * vec4(position, 1.0);
+  vWorld = world.xyz;
+  gl_Position = projectionMatrix * viewMatrix * world;
 }
 `;
 
 export const HAZE_FRAGMENT = /* glsl */ `
 precision mediump float;
-varying vec2 vUv;
+varying vec3 vWorld;
+uniform vec3 uSunDir;
+uniform float uSunGlow;
 void main() {
-  float t = vUv.y;
-  float band = smoothstep(0.02, 0.28, t) * (1.0 - smoothstep(0.42, 0.96, t));
-  vec3 col = mix(vec3(0.22, 0.28, 0.36), vec3(0.55, 0.62, 0.70), smoothstep(0.1, 0.45, t));
-  gl_FragColor = vec4(col, band * 0.42);
+  float r = length(vWorld.xz);
+  float t = smoothstep(18.0, 70.0, r);
+  float band = smoothstep(0.0, 0.35, t) * (1.0 - smoothstep(0.55, 1.0, t));
+  vec3 col = mix(vec3(0.22, 0.28, 0.36), vec3(0.55, 0.62, 0.70), t);
+  vec2 sun = uSunDir.xz;
+  float along = dot(normalize(vWorld.xz + vec2(0.001)), normalize(sun + vec2(0.001)));
+  float warm = smoothstep(0.15, 1.0, along) * uSunGlow;
+  col = mix(col, vec3(0.78, 0.46, 0.28), warm * 0.62);
+  gl_FragColor = vec4(col, band * mix(0.42, 0.62, warm));
+}
+`;
+
+export const FLOOR_VERTEX = /* glsl */ `
+varying vec3 vWorld;
+void main() {
+  vec4 world = modelMatrix * vec4(position, 1.0);
+  vWorld = world.xyz;
+  gl_Position = projectionMatrix * viewMatrix * world;
+}
+`;
+
+export const FLOOR_FRAGMENT = /* glsl */ `
+precision mediump float;
+varying vec3 vWorld;
+uniform vec3 uSunDir;
+uniform float uSunGlow;
+uniform float uAlpha;
+void main() {
+  float r = length(vWorld.xz) / 90.0;
+  float disc = 1.0 - smoothstep(0.42, 1.0, r);
+  vec3 col = vec3(0.018, 0.022, 0.03);
+  vec2 sun = normalize(uSunDir.xz + vec2(0.0001));
+  float along = dot(normalize(vWorld.xz + vec2(0.001)), sun);
+  float pool = smoothstep(0.25, 1.0, along) * exp(-r * 1.6) * max(uSunDir.y, 0.0);
+  col += vec3(0.20, 0.14, 0.08) * pool * uSunGlow;
+  gl_FragColor = vec4(col, uAlpha * disc);
 }
 `;
 

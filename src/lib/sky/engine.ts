@@ -26,6 +26,8 @@ import {
   DOME_VERTEX,
   FIGURE_FRAGMENT,
   FIGURE_VERTEX,
+  FLOOR_FRAGMENT,
+  FLOOR_VERTEX,
   HAZE_FRAGMENT,
   HAZE_VERTEX,
   LINE_FRAGMENT,
@@ -97,6 +99,7 @@ export class SkyEngine {
   private tmp2 = new THREE.Vector3();
   private tmp3 = new THREE.Vector3();
   private tmpQ = new THREE.Quaternion();
+  private sunDir = new THREE.Vector3(0, 0.2, -1);
   private qLst = new THREE.Quaternion();
   private qLat = new THREE.Quaternion();
   private qHead = new THREE.Quaternion();
@@ -250,6 +253,8 @@ export class SkyEngine {
         uZenith: { value: new THREE.Color(0x05070d) },
         uHorizon: { value: new THREE.Color(0x1a2433) },
         uGlow: { value: new THREE.Color(0x6d7c90) },
+        uSunDir: { value: this.sunDir },
+        uSunGlow: { value: 0.2 },
       },
       side: THREE.BackSide,
       depthWrite: false,
@@ -259,7 +264,17 @@ export class SkyEngine {
 
     this.ground = new THREE.Mesh(
       new THREE.CircleGeometry(90, 72),
-      new THREE.MeshBasicMaterial({ color: 0x05060a, transparent: true, opacity: 0.94 }),
+      new THREE.ShaderMaterial({
+        vertexShader: FLOOR_VERTEX,
+        fragmentShader: FLOOR_FRAGMENT,
+        uniforms: {
+          uSunDir: { value: this.sunDir },
+          uSunGlow: { value: 0.2 },
+          uAlpha: { value: 0.78 },
+        },
+        transparent: true,
+        depthWrite: false,
+      }),
     );
     this.ground.rotation.x = -Math.PI / 2;
     this.ground.position.y = 0;
@@ -270,6 +285,10 @@ export class SkyEngine {
       new THREE.ShaderMaterial({
         vertexShader: HAZE_VERTEX,
         fragmentShader: HAZE_FRAGMENT,
+        uniforms: {
+          uSunDir: { value: this.sunDir },
+          uSunGlow: { value: 0.2 },
+        },
         transparent: true,
         depthWrite: false,
         side: THREE.DoubleSide,
@@ -654,8 +673,25 @@ export class SkyEngine {
     this.landscape.visible = outdoor;
     this.cardinals.visible = outdoor;
     this.dome.visible = !state.xrActive;
-    (this.ground.material as THREE.MeshBasicMaterial).opacity = outdoor ? 0.94 : 0.78;
+    const floor = this.ground.material as THREE.ShaderMaterial;
+    floor.uniforms.uAlpha.value = outdoor ? 0.94 : 0.78;
+    this.paintSun();
     this.labelsEl.style.opacity = state.showNames && !state.xrActive ? "1" : "0";
+  }
+
+  private paintSun() {
+    const sun = this.bodySprites.get("sun");
+    if (!sun) return;
+    sun.getWorldPosition(this.sunDir);
+    const len = this.sunDir.length() || 1;
+    this.sunDir.multiplyScalar(1 / len);
+    const alt = Math.asin(Math.max(-1, Math.min(1, this.sunDir.y)));
+    const dusk = Math.exp(-((alt - 0.02) ** 2) / 0.05);
+    const day = Math.max(0, alt) * 0.35;
+    const glow = Math.min(1, dusk * 0.85 + day + (alt > -0.35 ? 0.12 : 0));
+    this.domeMaterial.uniforms.uSunGlow.value = glow;
+    (this.ground.material as THREE.ShaderMaterial).uniforms.uSunGlow.value = glow;
+    (this.horizon.material as THREE.ShaderMaterial).uniforms.uSunGlow.value = glow;
   }
 
   private orientSky(state: ReturnType<typeof useSkyStore.getState>) {
