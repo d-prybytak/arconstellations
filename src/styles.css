@@ -157,6 +157,11 @@
   white-space: nowrap;
 }
 
+.sky-constellation-label.is-hot,
+.sky-star-label.is-hot {
+  color: rgb(244 246 250 / 0.94);
+}
+
 .sky-body-label {
   position: absolute;
   transform: translate(-50%, 12px);

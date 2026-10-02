@@ -98,12 +98,15 @@ void main() {
 export const LINE_VERTEX = /* glsl */ `
 attribute vec3 aOther;
 attribute float aSide;
+attribute float aCon;
 uniform float uHorizonClip;
 uniform float uDim;
+uniform float uFocus;
 uniform vec2 uResolution;
 uniform float uWidth;
 varying float vAlpha;
 varying float vAcross;
+varying float vFocus;
 
 void main() {
   vec4 world = modelMatrix * vec4(position, 1.0);
@@ -112,14 +115,19 @@ void main() {
   if (uHorizonClip > 0.5) {
     horizon = smoothstep(-6.0, 18.0, world.y);
   }
-  vAlpha = horizon * mix(0.9, 0.07, uDim);
+  float on = uFocus > -0.5 && abs(aCon - uFocus) < 0.5 ? 1.0 : 0.0;
+  vFocus = on;
+  float dimmed = mix(0.9, 0.07, uDim);
+  float rested = uFocus > -0.5 ? dimmed * 0.22 : dimmed;
+  vAlpha = horizon * mix(rested, max(dimmed, 0.96), on);
   vAcross = aSide;
   vec4 clip = projectionMatrix * viewMatrix * world;
   vec4 clipO = projectionMatrix * viewMatrix * other;
   vec2 dir = clipO.xy / max(clipO.w, 0.0001) - clip.xy / max(clip.w, 0.0001);
   float len = length(dir);
   vec2 perp = len < 0.00001 ? vec2(0.0, 1.0) : vec2(-dir.y, dir.x) / len;
-  clip.xy += perp * aSide * uWidth * (2.0 / max(uResolution, vec2(1.0))) * clip.w;
+  float width = uWidth * mix(1.0, 1.75, on);
+  clip.xy += perp * aSide * width * (2.0 / max(uResolution, vec2(1.0))) * clip.w;
   gl_Position = clip;
 }
 `;
@@ -129,11 +137,13 @@ precision mediump float;
 uniform vec3 uColor;
 varying float vAlpha;
 varying float vAcross;
+varying float vFocus;
 void main() {
   float core = exp(-vAcross * vAcross * 7.5);
   float halo = exp(-vAcross * vAcross * 1.35) * 0.38;
   float w = core + halo;
-  gl_FragColor = vec4(uColor, vAlpha * w);
+  vec3 col = mix(uColor, vec3(0.96, 0.97, 0.99), vFocus);
+  gl_FragColor = vec4(col, vAlpha * w);
 }
 `;
 

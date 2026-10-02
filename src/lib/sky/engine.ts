@@ -156,6 +156,8 @@ export class SkyEngine {
   private pointerSeen = false;
   private pointerNdcX = 0;
   private pointerNdcY = 0;
+  private hoverConId = "";
+  private conIndex = new Map<string, number>();
   private ndc = new THREE.Vector2();
   private bodies: SolarBody[] = [];
 
@@ -620,6 +622,14 @@ export class SkyEngine {
       this.lineMaterial.uniforms.uDim.value = dim;
       this.lineMaterial.uniforms.uHorizonClip.value = clip;
       this.lineMaterial.uniforms.uColor.value.set(state.showFigures ? 0xaeb6c2 : 0xc5ccd6);
+      const selectedCon =
+        state.selected?.kind === "constellation"
+          ? state.selected.id
+          : state.selected?.kind === "star"
+            ? (state.selected.con ?? "")
+            : "";
+      const hotId = selectedCon || (state.selected ? "" : this.hoverConId);
+      this.lineMaterial.uniforms.uFocus.value = hotId ? (this.conIndex.get(hotId) ?? -1) : -1;
     }
     if (this.linesMesh) this.linesMesh.visible = state.showLines;
     this.milkyMaterial.uniforms.uHorizonClip.value = clip;
@@ -628,10 +638,14 @@ export class SkyEngine {
     this.bodyGroup.visible = state.showPlanets;
     this.dsoGroup.visible = state.magLimit >= 4.2;
     const selectedId = state.selected?.kind === "constellation" ? state.selected.id : "";
+    const hotFigure =
+      selectedId ||
+      (state.selected?.kind === "star" ? (state.selected.con ?? "") : "") ||
+      (state.selected ? "" : this.hoverConId);
     this.figureMats.forEach((mat, id) => {
       mat.uniforms.uDim.value = dim;
       mat.uniforms.uHorizonClip.value = clip;
-      mat.uniforms.uHighlight.value = id === selectedId ? 1 : 0;
+      mat.uniforms.uHighlight.value = id === hotFigure ? 1 : 0;
     });
 
     const outdoor = state.mode === "outdoor" && !state.xrActive;
@@ -704,7 +718,16 @@ export class SkyEngine {
     const linePos: number[] = [];
     const lineOther: number[] = [];
     const lineSide: number[] = [];
-    const pushRibbon = (ax: number, ay: number, az: number, bx: number, by: number, bz: number) => {
+    const lineCon: number[] = [];
+    const pushRibbon = (
+      ax: number,
+      ay: number,
+      az: number,
+      bx: number,
+      by: number,
+      bz: number,
+      conIdx: number,
+    ) => {
       const quad: [number, number, number, number, number, number, number][] = [
         [ax, ay, az, bx, by, bz, -1],
         [ax, ay, az, bx, by, bz, 1],
@@ -717,21 +740,25 @@ export class SkyEngine {
         linePos.push(v[0], v[1], v[2]);
         lineOther.push(v[3], v[4], v[5]);
         lineSide.push(v[6]);
+        lineCon.push(conIdx);
       }
     };
-    for (const con of catalog.constellations) {
+    this.conIndex.clear();
+    catalog.constellations.forEach((con, idx) => {
+      this.conIndex.set(con.id, idx);
       for (const path of con.paths) {
         for (let i = 0; i < path.length - 1; i++) {
           const a = equatorialToCartesian(path[i]![0], path[i]![1], SKY_RADIUS);
           const b = equatorialToCartesian(path[i + 1]![0], path[i + 1]![1], SKY_RADIUS);
-          pushRibbon(a.x, a.y, a.z, b.x, b.y, b.z);
+          pushRibbon(a.x, a.y, a.z, b.x, b.y, b.z, idx);
         }
       }
-    }
+    });
     const lineGeo = new THREE.BufferGeometry();
     lineGeo.setAttribute("position", new THREE.Float32BufferAttribute(linePos, 3));
     lineGeo.setAttribute("aOther", new THREE.Float32BufferAttribute(lineOther, 3));
     lineGeo.setAttribute("aSide", new THREE.Float32BufferAttribute(lineSide, 1));
+    lineGeo.setAttribute("aCon", new THREE.Float32BufferAttribute(lineCon, 1));
     const pr = this.renderer.getPixelRatio();
     this.lineMaterial = new THREE.ShaderMaterial({
       vertexShader: LINE_VERTEX,
@@ -747,6 +774,7 @@ export class SkyEngine {
           ),
         },
         uWidth: { value: 2.4 },
+        uFocus: { value: -1 },
       },
       transparent: true,
       depthWrite: false,
@@ -1093,7 +1121,7 @@ export class SkyEngine {
     const w = this.canvas.clientWidth;
     const h = this.canvas.clientHeight;
     const cam = this.activeCamera();
-    const place = (key: string, world: THREE.Vector3, minY: number) => {
+    const place = (key: string, world: THREE.Vector3, minY: number, hot = false) => {
       const el = this.labelNodes.get(key);
       if (!el) return;
       this.tmp.copy(world).project(cam);
@@ -1108,14 +1136,28 @@ export class SkyEngine {
         el.style.display = "none";
         return;
       }
+      const fromCenter = Math.hypot(this.tmp.x, this.tmp.y);
+      const fade = hot ? 1 : Math.max(0.2, 1 - Math.max(0, fromCenter - 0.15) / 0.95);
       el.style.display = "block";
+      el.style.opacity = fade.toFixed(3);
+      el.classList.toggle("is-hot", hot);
       el.style.left = `${((this.tmp.x + 1) / 2) * w}px`;
       el.style.top = `${((1 - this.tmp.y) / 2) * h}px`;
     };
 
+    const selected = state.selected;
+    const hotId =
+      selected?.kind === "constellation"
+        ? selected.id
+        : selected?.kind === "star"
+          ? (selected.con ?? "")
+          : selected
+            ? ""
+            : this.hoverConId;
+
     for (const con of catalog.constellations) {
       if (con.rank > 2) continue;
-      place(`c:${con.id}`, this.eqWorld(con.ra, con.dec), 8);
+      place(`c:${con.id}`, this.eqWorld(con.ra, con.dec), 8, con.id === hotId);
     }
     for (const s of catalog.stars) {
       if (!s.name || s.mag > 1.55) continue;
@@ -1124,7 +1166,7 @@ export class SkyEngine {
         if (el) el.style.display = "none";
         continue;
       }
-      place(`s:${s.hip}`, this.eqWorld(s.ra, s.dec), 6);
+      place(`s:${s.hip}`, this.eqWorld(s.ra, s.dec), 6, Boolean(hotId) && s.con === hotId);
     }
     if (state.showPlanets) {
       for (const body of this.bodies) {
@@ -1312,6 +1354,8 @@ export class SkyEngine {
       useSkyStore.getState().setHoveredName(name);
     }
     this.canvas.style.cursor = name ? "pointer" : "grab";
+    this.hoverConId =
+      hit?.kind === "constellation" ? hit.id : hit?.kind === "star" ? (hit.con ?? "") : "";
     if (hit) {
       this.aimLocked = true;
       this.aimDesired.copy(this.eqWorld(hit.ra, hit.dec));
