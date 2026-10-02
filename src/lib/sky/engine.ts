@@ -148,6 +148,15 @@ export class SkyEngine {
   private orientListening = false;
   private tether: THREE.Line;
   private tetherPositions = new Float32Array(6);
+  private aim: THREE.Mesh;
+  private aimDesired = new THREE.Vector3(0, 80, -300);
+  private aimOpacity = 0;
+  private aimScale = 5.6;
+  private aimLocked = false;
+  private pointerSeen = false;
+  private pointerNdcX = 0;
+  private pointerNdcY = 0;
+  private ndc = new THREE.Vector2();
   private bodies: SolarBody[] = [];
 
   constructor(opts: {
@@ -207,6 +216,30 @@ export class SkyEngine {
     this.tether.frustumCulled = false;
     this.tether.visible = false;
     this.scene.add(this.tether);
+    this.aim = new THREE.Mesh(
+      new THREE.RingGeometry(0.78, 0.92, 64),
+      new THREE.MeshBasicMaterial({
+        color: 0xd7dde6,
+        transparent: true,
+        opacity: 0,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      }),
+    );
+    const pip = new THREE.Mesh(
+      new THREE.RingGeometry(0.16, 0.24, 32),
+      new THREE.MeshBasicMaterial({
+        color: 0xf4f7fb,
+        transparent: true,
+        opacity: 0.9,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      }),
+    );
+    this.aim.add(pip);
+    this.aim.frustumCulled = false;
+    this.aim.renderOrder = 4;
+    this.scene.add(this.aim);
 
     this.domeMaterial = new THREE.ShaderMaterial({
       vertexShader: DOME_VERTEX,
@@ -318,6 +351,11 @@ export class SkyEngine {
     this.linesMesh?.geometry.dispose();
     this.tether.geometry.dispose();
     (this.tether.material as THREE.Material).dispose();
+    this.aim.geometry.dispose();
+    (this.aim.material as THREE.Material).dispose();
+    const pip = this.aim.children[0] as THREE.Mesh | undefined;
+    pip?.geometry.dispose();
+    (pip?.material as THREE.Material | undefined)?.dispose();
     this.ground.geometry.dispose();
     (this.ground.material as THREE.Material).dispose();
     this.horizon.geometry.dispose();
@@ -545,6 +583,8 @@ export class SkyEngine {
     this.updatePresent(dt);
     this.updateLabels();
     if (!this.renderer.xr.isPresenting) this.applyLook();
+    this.camera.updateMatrixWorld();
+    this.updateAim(dt);
     if (time - this.lastAzPub > 220) {
       this.lastAzPub = time;
       this.camera.getWorldDirection(this.tmp);
@@ -1191,6 +1231,9 @@ export class SkyEngine {
     const rect = this.canvas.getBoundingClientRect();
     const x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
     const y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+    this.pointerSeen = true;
+    this.pointerNdcX = x;
+    this.pointerNdcY = y;
     if (this.pointer === "drag") {
       const dx = e.clientX - this.lastPointer.x;
       const dy = e.clientY - this.lastPointer.y;
@@ -1269,6 +1312,64 @@ export class SkyEngine {
       useSkyStore.getState().setHoveredName(name);
     }
     this.canvas.style.cursor = name ? "pointer" : "grab";
+    if (hit) {
+      this.aimLocked = true;
+      this.aimDesired.copy(this.eqWorld(hit.ra, hit.dec));
+      this.aimDesired.lerp(this.activeCamera().position, 0.07);
+      return;
+    }
+    this.aimLocked = false;
+    this.pointOnVault(ndcX, ndcY, this.aimDesired);
+  }
+
+  private pointOnVault(ndcX: number, ndcY: number, out: THREE.Vector3) {
+    const cam = this.activeCamera();
+    this.ndc.set(ndcX, ndcY);
+    this.raycaster.setFromCamera(this.ndc, cam);
+    const origin = this.raycaster.ray.origin;
+    const dir = this.raycaster.ray.direction;
+    const radius = SKY_RADIUS * 0.9;
+    const b = origin.dot(dir);
+    const c = origin.lengthSq() - radius * radius;
+    const disc = b * b - c;
+    if (disc < 0) return;
+    const t = -b + Math.sqrt(disc);
+    out.copy(dir).multiplyScalar(t).add(origin);
+  }
+
+  private updateAim(dt: number) {
+    const state = useSkyStore.getState();
+    const hide =
+      state.introOpen || state.selected != null || this.pointer === "drag" || this.pointer === "pinch";
+    if (!hide && this.catalog) {
+      if (this.renderer.xr.isPresenting && this.controllers[0]) {
+        const hand = this.controllers[0];
+        hand.getWorldPosition(this.tmp);
+        hand.getWorldQuaternion(this.tmpQ);
+        this.tmp2.set(0, 0, -1).applyQuaternion(this.tmpQ);
+        this.tmp3.copy(this.tmp).addScaledVector(this.tmp2, 30).project(this.activeCamera());
+        if (this.tmp3.z < 1) this.hoverAt(this.tmp3.x, this.tmp3.y);
+      } else {
+        const gaze = state.followDevice || !this.pointerSeen;
+        this.hoverAt(gaze ? 0 : this.pointerNdcX, gaze ? 0 : this.pointerNdcY);
+      }
+    }
+    const goalOp = hide ? 0 : this.aimLocked ? 0.92 : 0.34;
+    const goalSc = this.aimLocked ? 2.6 : 5.4;
+    const k = 1 - Math.exp(-12 * dt);
+    this.aimOpacity += (goalOp - this.aimOpacity) * k;
+    this.aimScale += (goalSc - this.aimScale) * k;
+    const chase = 1 - Math.exp((this.aimLocked ? -18 : -8) * dt);
+    this.aim.position.lerp(this.aimDesired, chase);
+    this.aim.quaternion.copy(this.activeCamera().quaternion);
+    this.aim.scale.setScalar(Math.max(0.2, this.aimScale));
+    const mat = this.aim.material as THREE.MeshBasicMaterial;
+    mat.opacity = this.aimOpacity;
+    mat.color.set(this.aimLocked ? 0xf3f6fa : 0xb7c0cc);
+    const pip = this.aim.children[0] as THREE.Mesh | undefined;
+    const pipMat = pip?.material as THREE.MeshBasicMaterial | undefined;
+    if (pipMat) pipMat.opacity = this.aimLocked ? 0.95 : 0.35;
+    this.aim.visible = this.aimOpacity > 0.02;
   }
 
   private selectAt(ndcX: number, ndcY: number) {
@@ -1780,7 +1881,7 @@ export class SkyEngine {
       ]);
       const ray = new THREE.Line(
         rayGeo,
-        new THREE.LineBasicMaterial({ color: 0xc5ccd6, transparent: true, opacity: 0.55 }),
+        new THREE.LineBasicMaterial({ color: 0xd7dde6, transparent: true, opacity: 0.38 }),
       );
       controller.add(ray);
       controller.addEventListener("select", () => this.onControllerSelect(controller));
