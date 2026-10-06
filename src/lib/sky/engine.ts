@@ -8,6 +8,7 @@ import {
 import {
   DEEP_SKY,
   paintDeepSky,
+  galileanPhases,
   paintMoonPhase,
   paintPlanetMap,
   paintWorld,
@@ -167,6 +168,8 @@ export class SkyEngine {
   private hoverConId = "";
   private glowSprites: THREE.Sprite[] = [];
   private glowTexture: THREE.CanvasTexture | null = null;
+  private galileanSprites: THREE.Sprite[] = [];
+  private galileanTex: THREE.CanvasTexture | null = null;
   private conIndex = new Map<string, number>();
   private ndc = new THREE.Vector2();
   private bodies: SolarBody[] = [];
@@ -383,6 +386,8 @@ export class SkyEngine {
     this.lineMaterial?.dispose();
     this.glowTexture?.dispose();
     for (const spr of this.glowSprites) spr.material.dispose();
+    this.galileanTex?.dispose();
+    for (const spr of this.galileanSprites) spr.material.dispose();
     this.starsMesh?.geometry.dispose();
     this.linesMesh?.geometry.dispose();
     this.tether.geometry.dispose();
@@ -1030,6 +1035,70 @@ export class SkyEngine {
     add("saturn", 8.6);
     add("uranus", 3.8);
     add("neptune", 3.7);
+    this.addGalileanSprites();
+  }
+
+  private addGalileanSprites() {
+    const canvas = document.createElement("canvas");
+    canvas.width = 32;
+    canvas.height = 32;
+    const ctx = canvas.getContext("2d")!;
+    const g = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
+    g.addColorStop(0, "rgba(255,255,255,1)");
+    g.addColorStop(0.45, "rgba(255,255,255,0.7)");
+    g.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 32, 32);
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    this.galileanTex = tex;
+    const phases = galileanPhases(new Date());
+    for (const moon of phases) {
+      const spr = new THREE.Sprite(
+        new THREE.SpriteMaterial({
+          map: tex,
+          color: moon.color,
+          transparent: true,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending,
+        }),
+      );
+      spr.scale.setScalar(moon.name === "Ganymede" ? 5.2 : 4.2);
+      spr.frustumCulled = false;
+      spr.renderOrder = 2;
+      this.bodyGroup.add(spr);
+      this.galileanSprites.push(spr);
+    }
+  }
+
+  private placeGalileanSky(date: Date, jupiterRa: number, jupiterDec: number, visible: boolean) {
+    const j = equatorialToCartesian(jupiterRa, jupiterDec, 1);
+    const J = this.tmp.set(j.x, j.y, j.z).normalize();
+    const pole = equatorialToCartesian(268.056595, 64.495303, 1);
+    const P = this.tmp2.set(pole.x, pole.y, pole.z).normalize();
+    const node = this.tmp3.crossVectors(P, J);
+    if (node.lengthSq() < 1e-8) node.set(1, 0, 0);
+    node.normalize();
+    const minor = new THREE.Vector3().crossVectors(J, node).normalize();
+    const open = Math.max(Math.abs(P.dot(J)), 0.045);
+    const phases = galileanPhases(date);
+    const glass = 22;
+    const jupRad = 9.6e-5;
+    phases.forEach((moon, i) => {
+      const spr = this.galileanSprites[i];
+      if (!spr) return;
+      spr.visible = visible;
+      if (!visible) return;
+      const elong = moon.rj * jupRad * glass;
+      const along = Math.cos(moon.ang) * elong;
+      const across = Math.sin(moon.ang) * elong * open;
+      const dir = J.clone()
+        .addScaledVector(node, along)
+        .addScaledVector(minor, across)
+        .normalize()
+        .multiplyScalar(SKY_RADIUS * 0.994);
+      spr.position.copy(dir);
+    });
   }
 
   private buildDeepSky() {
@@ -1081,6 +1150,13 @@ export class SkyEngine {
       } else {
         spr.visible = true;
       }
+    }
+    const jupiter = this.bodies.find((b) => b.id === "jupiter");
+    if (jupiter && this.galileanSprites.length) {
+      const jSpr = this.bodySprites.get("jupiter");
+      const showing = this.bodyGroup.visible && jSpr?.visible !== false;
+      const hidden = state.selected?.kind === "body" && state.selected.id === "jupiter";
+      this.placeGalileanSky(date, jupiter.ra, jupiter.dec, showing && !hidden);
     }
   }
 
@@ -2031,6 +2107,23 @@ export class SkyEngine {
       spin.add(ring(1.2, 1.62, 0xf3e6cc, 0.84));
     }
 
+    if (body.id === "jupiter") {
+      const moons = new THREE.Group();
+      moons.name = "galileans";
+      const now = galileanPhases(new Date());
+      const reach = [0.98, 1.24, 1.56, 1.95];
+      now.forEach((moon, i) => {
+        const mesh = new THREE.Mesh(
+          new THREE.SphereGeometry(moon.radius, 20, 16),
+          new THREE.MeshLambertMaterial({ color: moon.color }),
+        );
+        mesh.layers.set(1);
+        mesh.position.set(Math.cos(moon.ang) * reach[i]!, 0, Math.sin(moon.ang) * reach[i]! * 0.16);
+        moons.add(mesh);
+      });
+      tilt.add(moons);
+    }
+
     if (lit) {
       const phaseAng = Math.acos(Math.max(-1, Math.min(1, 1 - 2 * (body.id === "moon" ? body.phase : 1))));
       const side = body.waxing ? 1 : -1;
@@ -2121,6 +2214,18 @@ export class SkyEngine {
     if (this.present.spinning && this.present.inner && this.present.t >= 1) {
       const axis = this.present.spin === "y" ? this.yAxis : this.zAxis;
       this.present.inner.rotateOnAxis(axis, dt * this.present.rate);
+    }
+    const moons = this.presentGroup.getObjectByName("galileans");
+    if (moons) {
+      const date = new Date(Date.now() + useSkyStore.getState().timeOffsetHours * 3600_000);
+      const phases = galileanPhases(date);
+      const reach = [0.98, 1.24, 1.56, 1.95];
+      phases.forEach((moon, i) => {
+        const mesh = moons.children[i];
+        if (!mesh) return;
+        const dist = reach[i]!;
+        mesh.position.set(Math.cos(moon.ang) * dist, 0, Math.sin(moon.ang) * dist * 0.16);
+      });
     }
   }
 

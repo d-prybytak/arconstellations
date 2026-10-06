@@ -599,6 +599,23 @@ export function paintPlanetMap(id: string): HTMLCanvasElement {
   return canvas;
 }
 
+const GALILEAN = [
+  { name: "Io", L0: 106.07719, n: 203.48895579, rj: 5.90569, color: 0xfff2c8, radius: 0.072 },
+  { name: "Europa", L0: 175.73161, n: 101.374724735, rj: 9.39657, color: 0xf7f3ea, radius: 0.06 },
+  { name: "Ganymede", L0: 120.55883, n: 50.317609207, rj: 14.98832, color: 0xe4d8c4, radius: 0.098 },
+  { name: "Callisto", L0: 84.44459, n: 21.571071177, rj: 26.36273, color: 0xc9c0b2, radius: 0.086 },
+] as const;
+
+/** Orbital phase of the four Galilean moons. ang is radians from the sky's line of nodes. */
+export function galileanPhases(date: Date) {
+  const d = julianDate(date) - 2_451_545.0;
+  return GALILEAN.map((m) => {
+    const deg = (m.L0 + m.n * d) % 360;
+    const wrapped = deg < 0 ? deg + 360 : deg;
+    return { ...m, ang: wrapped * DEG };
+  });
+}
+
 export function paintMoonPhase(phase: number, waxing: boolean): HTMLCanvasElement {
   const s = 256;
   const c = document.createElement("canvas");
