@@ -618,6 +618,20 @@ export function galileanPhases(date: Date) {
   });
 }
 
+const SATURN_MOONS = [
+  { name: "Rhea", period: 4.518, phase0: 40, dist: 1.82, radius: 0.046, color: 0xf4f0e8 },
+  { name: "Titan", period: 15.945, phase0: 210, dist: 2.12, radius: 0.08, color: 0xe8c27a },
+] as const;
+
+export function saturnMoons(date: Date) {
+  const d = julianDate(date) - 2_451_545.0;
+  return SATURN_MOONS.map((m) => {
+    const deg = (m.phase0 + (360 / m.period) * d) % 360;
+    const wrapped = deg < 0 ? deg + 360 : deg;
+    return { ...m, ang: wrapped * DEG };
+  });
+}
+
 export function paintMoonPhase(phase: number, waxing: boolean): HTMLCanvasElement {
   const s = 256;
   const c = document.createElement("canvas");

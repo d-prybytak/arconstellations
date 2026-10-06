@@ -326,3 +326,67 @@ void main() {
   gl_FragColor = vec4(t.rgb, a);
 }
 `;
+
+export const RING_VERTEX = /* glsl */ `
+varying vec3 vPos;
+void main() {
+  vPos = position;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}
+`;
+
+export const RING_FRAGMENT = /* glsl */ `
+uniform vec3 uColor;
+uniform vec3 uLight;
+uniform float uRadius;
+uniform float uOpacity;
+varying vec3 vPos;
+void main() {
+  vec3 L = normalize(uLight);
+  float along = dot(vPos, L);
+  float dist = length(vPos - L * along);
+  float shade = along < 0.0 ? smoothstep(uRadius * 1.08, uRadius * 0.78, dist) : 0.0;
+  gl_FragColor = vec4(uColor * (1.0 - 0.82 * shade), uOpacity);
+}
+`;
+
+export const SATURN_VERTEX = /* glsl */ `
+varying vec2 vUv;
+varying vec3 vWorld;
+void main() {
+  vUv = uv;
+  vec4 world = modelMatrix * vec4(position, 1.0);
+  vWorld = world.xyz;
+  gl_Position = projectionMatrix * viewMatrix * world;
+}
+`;
+
+export const SATURN_FRAGMENT = /* glsl */ `
+uniform sampler2D uMap;
+uniform vec3 uCenter;
+uniform vec3 uLightDir;
+uniform vec3 uPole;
+uniform float uScale;
+varying vec2 vUv;
+varying vec3 vWorld;
+void main() {
+  vec3 p = vWorld - uCenter;
+  vec3 N = normalize(p);
+  vec3 L = normalize(uLightDir);
+  float ndl = clamp(dot(N, L), 0.0, 1.0);
+  float ly = dot(L, uPole);
+  float shadow = 0.0;
+  if (abs(ly) > 0.02) {
+    float t = -dot(p, uPole) / ly;
+    if (t > 0.02) {
+      vec3 hit = p + L * t;
+      float radial = length(hit - uPole * dot(hit, uPole)) / max(uScale, 0.001);
+      float inRing = smoothstep(0.8, 0.9, radial) * (1.0 - smoothstep(1.05, 1.16, radial));
+      shadow = inRing;
+    }
+  }
+  vec3 mapColor = texture2D(uMap, vUv).rgb;
+  vec3 col = mapColor * (0.22 + 0.78 * ndl) * (1.0 - 0.88 * shadow);
+  gl_FragColor = vec4(col, 1.0);
+}
+`;

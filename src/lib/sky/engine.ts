@@ -13,6 +13,7 @@ import {
   paintPlanetMap,
   paintPhasedWorld,
   paintWorld,
+  saturnMoons,
   solarSystem,
   type DeepSky,
   type SolarBody,
@@ -37,6 +38,10 @@ import {
   LINE_VERTEX,
   MILKY_FRAGMENT,
   MILKY_VERTEX,
+  RING_FRAGMENT,
+  RING_VERTEX,
+  SATURN_FRAGMENT,
+  SATURN_VERTEX,
   STAR_FRAGMENT,
   STAR_VERTEX,
 } from "./shaders";
@@ -2088,37 +2093,70 @@ export class SkyEngine {
     const radius = body.id === "saturn" ? 0.5 : body.id === "sun" ? 0.72 : 0.64;
     const sphere = new THREE.Mesh(
       new THREE.SphereGeometry(radius, 48, 32),
-      lit
-        ? new THREE.MeshLambertMaterial({ map })
-        : new THREE.MeshBasicMaterial({ map }),
+      body.id === "saturn"
+        ? new THREE.ShaderMaterial({
+            uniforms: {
+              uMap: { value: map },
+              uCenter: { value: new THREE.Vector3() },
+              uLightDir: { value: new THREE.Vector3(0, 0.2, 1) },
+              uPole: { value: new THREE.Vector3(0, 1, 0) },
+              uScale: { value: 1 },
+            },
+            vertexShader: SATURN_VERTEX,
+            fragmentShader: SATURN_FRAGMENT,
+          })
+        : lit
+          ? new THREE.MeshLambertMaterial({ map })
+          : new THREE.MeshBasicMaterial({ map }),
     );
     sphere.layers.set(1);
+    if (body.id === "saturn") sphere.name = "saturn-globe";
     if (body.id === "jupiter") sphere.scale.y = 0.94;
 
     const tilt = new THREE.Group();
+    if (body.id === "saturn") tilt.name = "saturn-tilt";
     tilt.rotation.z = body.id === "saturn" ? 0.68 : 0.15;
     tilt.rotation.x = 0.2;
     const spin = new THREE.Group();
     tilt.add(spin);
     spin.add(sphere);
 
+    const ringMats: THREE.ShaderMaterial[] = [];
     if (body.id === "saturn") {
       const ring = (inner: number, outer: number, color: number, opacity: number) => {
-        const mesh = new THREE.Mesh(
-          new THREE.RingGeometry(inner, outer, 96),
-          new THREE.MeshBasicMaterial({
-            color,
-            transparent: true,
-            opacity,
-            side: THREE.DoubleSide,
-            depthWrite: false,
-          }),
-        );
+        const mat = new THREE.ShaderMaterial({
+          vertexShader: RING_VERTEX,
+          fragmentShader: RING_FRAGMENT,
+          uniforms: {
+            uColor: { value: new THREE.Color(color) },
+            uLight: { value: new THREE.Vector3(0, 1, 0) },
+            uRadius: { value: radius },
+            uOpacity: { value: opacity },
+          },
+          transparent: true,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+        });
+        ringMats.push(mat);
+        const mesh = new THREE.Mesh(new THREE.RingGeometry(inner, outer, 128), mat);
         mesh.rotation.x = Math.PI / 2;
         return mesh;
       };
-      spin.add(ring(0.78, 1.12, 0xe7d7b4, 0.92));
-      spin.add(ring(1.2, 1.62, 0xf3e6cc, 0.84));
+      tilt.add(ring(0.78, 1.12, 0xe7d7b4, 0.92));
+      tilt.add(ring(1.2, 1.62, 0xf3e6cc, 0.84));
+
+      const moons = new THREE.Group();
+      moons.name = "saturn-moons";
+      for (const moon of saturnMoons(new Date())) {
+        const mesh = new THREE.Mesh(
+          new THREE.SphereGeometry(moon.radius, 20, 16),
+          new THREE.MeshLambertMaterial({ color: moon.color }),
+        );
+        mesh.layers.set(1);
+        mesh.position.set(Math.cos(moon.ang) * moon.dist, 0, Math.sin(moon.ang) * moon.dist);
+        moons.add(mesh);
+      }
+      tilt.add(moons);
     }
 
     if (body.id === "jupiter") {
@@ -2148,12 +2186,19 @@ export class SkyEngine {
       const key = new THREE.DirectionalLight(body.id === "moon" ? 0xf4f1ea : 0xfff6ea, 3.1);
       key.layers.set(1);
       key.position.set(side * Math.sin(phaseAng) * 3, 0.55, -Math.cos(phaseAng) * 3);
+      if (body.id === "saturn") key.name = "saturn-sun";
       key.target.position.set(0, 0, 0);
       const ambLevel =
         body.id === "moon" ? 0.16 : body.id === "mercury" || body.id === "venus" ? 0.07 : body.id === "mars" ? 0.22 : 0.42;
       const amb = new THREE.AmbientLight(body.id === "moon" ? 0x8d97a8 : 0xb7c0cc, ambLevel);
       amb.layers.set(1);
       group.add(key, key.target, amb);
+      if (ringMats.length) {
+        const qTilt = tilt.quaternion.clone().invert();
+        const qRing = new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI / 2, 0, 0)).invert();
+        const lightLocal = key.position.clone().applyQuaternion(qTilt).applyQuaternion(qRing);
+        for (const mat of ringMats) mat.uniforms.uLight.value.copy(lightLocal);
+      }
     }
 
     const glow = document.createElement("canvas");
@@ -2246,6 +2291,31 @@ export class SkyEngine {
         const dist = reach[i]!;
         mesh.position.set(Math.cos(moon.ang) * dist, 0, Math.sin(moon.ang) * dist * 0.16);
       });
+    }
+    const saturn = this.presentGroup.getObjectByName("saturn-moons");
+    if (saturn) {
+      const date = new Date(Date.now() + useSkyStore.getState().timeOffsetHours * 3600_000);
+      saturnMoons(date).forEach((moon, i) => {
+        const mesh = saturn.children[i];
+        if (!mesh) return;
+        mesh.position.set(Math.cos(moon.ang) * moon.dist, 0, Math.sin(moon.ang) * moon.dist);
+      });
+    }
+    const globe = this.presentGroup.getObjectByName("saturn-globe") as THREE.Mesh | undefined;
+    const sun = this.presentGroup.getObjectByName("saturn-sun");
+    const tilt = this.presentGroup.getObjectByName("saturn-tilt");
+    if (globe && sun && tilt) {
+      const mat = globe.material as THREE.ShaderMaterial;
+      const center = mat.uniforms.uCenter.value as THREE.Vector3;
+      const lightDir = mat.uniforms.uLightDir.value as THREE.Vector3;
+      const pole = mat.uniforms.uPole.value as THREE.Vector3;
+      globe.getWorldPosition(center);
+      sun.getWorldPosition(this.tmp);
+      lightDir.copy(this.tmp).sub(center).normalize();
+      tilt.getWorldQuaternion(this.tmpQ);
+      pole.set(0, 1, 0).applyQuaternion(this.tmpQ);
+      globe.getWorldScale(this.tmp2);
+      mat.uniforms.uScale.value = this.tmp2.x;
     }
   }
 
