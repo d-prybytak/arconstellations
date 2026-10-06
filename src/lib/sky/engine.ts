@@ -11,6 +11,7 @@ import {
   galileanPhases,
   paintMoonPhase,
   paintPlanetMap,
+  paintPhasedWorld,
   paintWorld,
   solarSystem,
   type DeepSky,
@@ -126,6 +127,7 @@ export class SkyEngine {
   private lastTime = 0;
   private lastAzPub = 0;
   private lastMoonKey = "";
+  private planetPhaseKey = new Map<string, string>();
   private disposed = false;
   private ro: ResizeObserver | null = null;
   private controllers: THREE.Object3D[] = [];
@@ -1142,6 +1144,18 @@ export class SkyEngine {
           old?.dispose();
         }
       }
+      if (body.id === "mercury" || body.id === "venus" || body.id === "mars") {
+        const key = `${body.phase.toFixed(2)}-${body.waxing ? "w" : "e"}`;
+        if (key !== this.planetPhaseKey.get(body.id)) {
+          this.planetPhaseKey.set(body.id, key);
+          const tex = new THREE.CanvasTexture(paintPhasedWorld(body.id, body.phase, body.waxing));
+          tex.colorSpace = THREE.SRGBColorSpace;
+          const old = spr.material.map;
+          spr.material.map = tex;
+          spr.material.needsUpdate = true;
+          old?.dispose();
+        }
+      }
       if (state.mode === "outdoor") {
         const lst = lstHours(date, state.lon);
         const { alt } = equatorialToAltAz(body.ra, body.dec, state.lat, lst);
@@ -2125,13 +2139,19 @@ export class SkyEngine {
     }
 
     if (lit) {
-      const phaseAng = Math.acos(Math.max(-1, Math.min(1, 1 - 2 * (body.id === "moon" ? body.phase : 1))));
+      const showsPhase =
+        body.id === "moon" || body.id === "mercury" || body.id === "venus" || body.id === "mars";
+      const phaseAng = Math.acos(
+        Math.max(-1, Math.min(1, 1 - 2 * (showsPhase ? body.phase : 1))),
+      );
       const side = body.waxing ? 1 : -1;
       const key = new THREE.DirectionalLight(body.id === "moon" ? 0xf4f1ea : 0xfff6ea, 3.1);
       key.layers.set(1);
       key.position.set(side * Math.sin(phaseAng) * 3, 0.55, -Math.cos(phaseAng) * 3);
       key.target.position.set(0, 0, 0);
-      const amb = new THREE.AmbientLight(body.id === "moon" ? 0x8d97a8 : 0xb7c0cc, body.id === "moon" ? 0.16 : 0.42);
+      const ambLevel =
+        body.id === "moon" ? 0.16 : body.id === "mercury" || body.id === "venus" ? 0.07 : body.id === "mars" ? 0.22 : 0.42;
+      const amb = new THREE.AmbientLight(body.id === "moon" ? 0x8d97a8 : 0xb7c0cc, ambLevel);
       amb.layers.set(1);
       group.add(key, key.target, amb);
     }

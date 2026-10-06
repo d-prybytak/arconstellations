@@ -324,7 +324,7 @@ function sunAndMoon(date: Date) {
 
 export function solarSystem(date: Date): SolarBody[] {
   const T = dJ2000(date) / 36525;
-  const { sun, moon, illum, waxing } = sunAndMoon(date);
+  const { sun, moon, illum, waxing, L: sunLon } = sunAndMoon(date);
   const earth = helio(EARTH, T);
 
   const bodies: SolarBody[] = [
@@ -364,6 +364,8 @@ export function solarSystem(date: Date): SolarBody[] {
     const lat = Math.atan2(zg, Math.hypot(xg, yg)) / DEG;
     const eq = eclipticToEquatorial(lon, lat);
     const fv = Math.acos(clamp((p.r * p.r + Δ * Δ - 1) / (2 * p.r * Δ + 1e-9), -1, 1));
+    const showsPhase = el.id === "mercury" || el.id === "venus" || el.id === "mars";
+    const lit = (1 + Math.cos(fv)) / 2;
     bodies.push({
       id: el.id,
       name: el.name,
@@ -372,9 +374,9 @@ export function solarSystem(date: Date): SolarBody[] {
       mag: el.mag(p.r, Δ, fv),
       color: el.color,
       size: el.size,
-      phase: 1,
-      waxing: true,
-      info: el.info,
+      phase: showsPhase ? lit : 1,
+      waxing: showsPhase ? wrap360(lon - sunLon) < 180 : true,
+      info: showsPhase ? `${el.info} ${Math.round(lit * 100)}% lit.` : el.info,
     });
   }
   return bodies;
@@ -831,6 +833,46 @@ export function paintWorld(id: string): HTMLCanvasElement {
   const r = row[0];
   halo(ctx, cx, cy, r, r * 2.3, row[1]);
   limbDisc(ctx, cx, cy, r, row[2], row[3], row[4]);
+  return canvas;
+}
+
+const PHASE_DISC: Record<string, number> = { mercury: 16, venus: 24, mars: 22 };
+
+export function paintPhasedWorld(id: string, phase: number, waxing: boolean): HTMLCanvasElement {
+  const canvas = paintWorld(id);
+  const r = PHASE_DISC[id];
+  if (!r || phase > 0.985) return canvas;
+  const ctx = canvas.getContext("2d")!;
+  const cx = 128;
+  const cy = 128;
+  const k = clamp(phase, 0, 1);
+  const dir = waxing ? 1 : -1;
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.clip();
+  ctx.fillStyle = "rgba(6, 8, 14, 0.93)";
+  if (k < 0.5) {
+    const w = r * (1 - 2 * k);
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, Math.abs(w), r, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    if (dir > 0) ctx.rect(0, 0, cx, 256);
+    else ctx.rect(cx, 0, 256, 256);
+    ctx.fill();
+  } else {
+    ctx.beginPath();
+    if (dir > 0) ctx.rect(0, 0, cx, 256);
+    else ctx.rect(cx, 0, 256, 256);
+    ctx.fill();
+    ctx.globalCompositeOperation = "destination-out";
+    const w = r * (2 * k - 1);
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, Math.abs(w), r, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
   return canvas;
 }
 
