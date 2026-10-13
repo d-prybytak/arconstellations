@@ -610,10 +610,10 @@ export class SkyEngine {
         t: reduced ? 1 : 0,
         duration: 1.8,
         from,
-        spinning: true,
-        spin: "z",
-        rate: 0.16,
-        inner: group,
+        spinning: group.userData.spinning !== false,
+        spin: (group.userData.axis as "y" | "z" | undefined) ?? "z",
+        rate: (group.userData.rate as number | undefined) ?? 0.12,
+        inner: (group.userData.spin as THREE.Object3D | undefined) ?? group,
       };
     }
   }
@@ -2232,20 +2232,204 @@ export class SkyEngine {
 
   private makeDsoPresent(dso: DeepSky) {
     const group = new THREE.Group();
+    const tint = new THREE.Color().setRGB(dso.tint[0], dso.tint[1], dso.tint[2]);
+    if (dso.kind === "galaxy") {
+      const tex = new THREE.CanvasTexture(this.paintSpiral(tint));
+      tex.colorSpace = THREE.SRGBColorSpace;
+      const disc = new THREE.Mesh(
+        new THREE.PlaneGeometry(1.7, 1.7),
+        new THREE.MeshBasicMaterial({
+          map: tex,
+          transparent: true,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending,
+          side: THREE.DoubleSide,
+        }),
+      );
+      const bulge = new THREE.Mesh(
+        new THREE.SphereGeometry(0.12, 18, 14),
+        new THREE.MeshBasicMaterial({ color: tint.clone().lerp(new THREE.Color("#fff6e8"), 0.45) }),
+      );
+      const orient = new THREE.Group();
+      orient.rotation.x = dso.id === "LMC" ? 0.5 : dso.id === "M33" ? 0.82 : 1.12;
+      const spin = new THREE.Group();
+      spin.add(disc, bulge);
+      orient.add(spin);
+      group.add(orient);
+      group.userData.spin = spin;
+      group.userData.axis = "z";
+      group.userData.rate = 0.07;
+      return group;
+    }
+    if (dso.kind === "cluster" && dso.id !== "M45") {
+      const ball = this.clusterPoints(96, 0.58, tint, true);
+      group.add(ball);
+      group.userData.spin = group;
+      group.userData.axis = "y";
+      group.userData.rate = 0.18;
+      return group;
+    }
+    if (dso.id === "M45") {
+      const dust = new THREE.Mesh(
+        new THREE.PlaneGeometry(1.6, 1.1),
+        new THREE.MeshBasicMaterial({
+          map: new THREE.CanvasTexture(paintDeepSky(dso)),
+          transparent: true,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending,
+          side: THREE.DoubleSide,
+          opacity: 0.85,
+        }),
+      );
+      (dust.material.map as THREE.Texture).colorSpace = THREE.SRGBColorSpace;
+      dust.position.z = -0.12;
+      dust.rotation.x = 0.35;
+      group.add(dust);
+      const spark = this.sparkTexture();
+      const sisters: [number, number, number, number][] = [
+        [0.02, 0.12, 0.08, 0.22],
+        [0.26, 0.02, -0.06, 0.16],
+        [-0.22, -0.06, 0.1, 0.15],
+        [0.06, -0.26, 0.02, 0.13],
+        [-0.32, 0.16, -0.08, 0.11],
+        [0.16, 0.3, 0.12, 0.1],
+        [-0.04, 0.02, -0.16, 0.09],
+      ];
+      for (const [x, y, z, size] of sisters) {
+        const mat = new THREE.SpriteMaterial({
+          map: spark,
+          color: tint,
+          transparent: true,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending,
+        });
+        const star = new THREE.Sprite(mat);
+        star.position.set(x, y, z);
+        star.scale.setScalar(size);
+        group.add(star);
+      }
+      group.userData.spin = group;
+      group.userData.axis = "y";
+      group.userData.rate = 0.12;
+      return group;
+    }
     const tex = new THREE.CanvasTexture(paintDeepSky(dso));
     tex.colorSpace = THREE.SRGBColorSpace;
-    const disc = new THREE.Mesh(
-      new THREE.PlaneGeometry(1.8, 1.8),
-      new THREE.MeshBasicMaterial({
-        map: tex,
+    const veil = (opacity: number, z: number, tiltX: number, scale: number) => {
+      const mesh = new THREE.Mesh(
+        new THREE.PlaneGeometry(1.7, 1.7),
+        new THREE.MeshBasicMaterial({
+          map: tex,
+          transparent: true,
+          opacity,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending,
+          side: THREE.DoubleSide,
+        }),
+      );
+      mesh.position.z = z;
+      mesh.rotation.x = tiltX;
+      mesh.scale.setScalar(scale);
+      return mesh;
+    };
+    group.add(veil(1, 0.05, 0, 1));
+    group.add(veil(0.4, -0.2, 0.42, 1.18));
+    group.add(this.clusterPoints(18, 0.35, tint.clone().lerp(new THREE.Color("#fffaf2"), 0.35), false));
+    group.userData.spinning = false;
+    return group;
+  }
+
+  private paintSpiral(tint: THREE.Color): HTMLCanvasElement {
+    const s = 256;
+    const canvas = document.createElement("canvas");
+    canvas.width = s;
+    canvas.height = s;
+    const ctx = canvas.getContext("2d")!;
+    const R = Math.round(tint.r * 255);
+    const G = Math.round(tint.g * 255);
+    const B = Math.round(tint.b * 255);
+    ctx.translate(128, 128);
+    const disc = ctx.createRadialGradient(0, 0, 8, 0, 0, 110);
+    disc.addColorStop(0, `rgba(${R},${G},${B},0.35)`);
+    disc.addColorStop(0.45, `rgba(${R},${G},${B},0.12)`);
+    disc.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = disc;
+    ctx.beginPath();
+    ctx.arc(0, 0, 110, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.lineCap = "round";
+    for (let arm = 0; arm < 2; arm++) {
+      ctx.beginPath();
+      for (let t = 0.15; t < 5.8; t += 0.12) {
+        const rad = 10 + t * 16;
+        const a = t * 1.15 + arm * Math.PI;
+        const x = Math.cos(a) * rad;
+        const y = Math.sin(a) * rad;
+        if (t < 0.2) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.strokeStyle = `rgba(${R},${G},${B},0.55)`;
+      ctx.lineWidth = 7;
+      ctx.stroke();
+    }
+    const core = ctx.createRadialGradient(0, 0, 0, 0, 0, 22);
+    core.addColorStop(0, "rgba(255,248,236,0.95)");
+    core.addColorStop(0.4, `rgba(${R},${G},${B},0.7)`);
+    core.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = core;
+    ctx.beginPath();
+    ctx.arc(0, 0, 22, 0, Math.PI * 2);
+    ctx.fill();
+    return canvas;
+  }
+
+  private sparkTexture(): THREE.CanvasTexture {
+    const canvas = document.createElement("canvas");
+    canvas.width = 64;
+    canvas.height = 64;
+    const ctx = canvas.getContext("2d")!;
+    const g = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+    g.addColorStop(0, "rgba(255,255,255,1)");
+    g.addColorStop(0.25, "rgba(255,255,255,0.7)");
+    g.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 64, 64);
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  }
+
+  private clusterPoints(count: number, spread: number, tint: THREE.Color, tight: boolean) {
+    const positions = new Float32Array(count * 3);
+    const colors = new Float32Array(count * 3);
+    for (let i = 0; i < count; i++) {
+      const u = Math.random();
+      const v = Math.random();
+      const rad = Math.pow(u, tight ? 0.45 : 0.7) * spread;
+      const theta = v * Math.PI * 2;
+      const phi = Math.acos(2 * Math.random() - 1);
+      positions[i * 3] = rad * Math.sin(phi) * Math.cos(theta);
+      positions[i * 3 + 1] = rad * Math.sin(phi) * Math.sin(theta) * (tight ? 1 : 0.72);
+      positions[i * 3 + 2] = rad * Math.cos(phi) * (tight ? 1 : 0.85);
+      const hot = 0.55 + Math.random() * 0.45;
+      colors[i * 3] = Math.min(1, tint.r * hot + (1 - hot) * 0.3);
+      colors[i * 3 + 1] = Math.min(1, tint.g * hot + (1 - hot) * 0.25);
+      colors[i * 3 + 2] = Math.min(1, tint.b * hot + (1 - hot) * 0.2);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+    return new THREE.Points(
+      geo,
+      new THREE.PointsMaterial({
+        size: tight ? 0.045 : 0.055,
+        vertexColors: true,
         transparent: true,
         depthWrite: false,
         blending: THREE.AdditiveBlending,
-        side: THREE.DoubleSide,
+        sizeAttenuation: true,
       }),
     );
-    group.add(disc);
-    return group;
   }
 
   private updatePresent(dt: number) {
