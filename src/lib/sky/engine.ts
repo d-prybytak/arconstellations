@@ -580,7 +580,7 @@ export class SkyEngine {
         from,
         spinning: true,
         spin: "z",
-        rate: 0.12,
+        rate: 0.06,
         inner: group,
       };
     } else if (selected.kind === "body") {
@@ -2001,11 +2001,12 @@ export class SkyEngine {
         new THREE.MeshBasicMaterial({
           map: tex,
           transparent: true,
+          opacity: 0.28,
           depthWrite: false,
           side: THREE.DoubleSide,
         }),
       );
-      fig.position.z = -0.08;
+      fig.position.z = -0.28;
       group.add(fig);
     }
 
@@ -2031,57 +2032,82 @@ export class SkyEngine {
     let maxR = 0.001;
     for (const p of oriented) maxR = Math.max(maxR, p.length());
     const scale = 1.12 / maxR;
-
-    const tubeMat = new THREE.MeshBasicMaterial({
-      color: 0xf2ead8,
+    const lineMat = new THREE.MeshBasicMaterial({
+      color: 0xcfc6b6,
       transparent: true,
-      opacity: 0.92,
+      opacity: 0.72,
     });
     for (const path of pathsLocal) {
       if (path.length < 2) continue;
-      const pts = path.map((p) =>
-        p.clone().sub(centroid).applyQuaternion(face).multiplyScalar(scale),
-      );
-      if (pts.length === 2) {
-        pts.splice(1, 0, pts[0]!.clone().lerp(pts[1]!, 0.5));
+      const pts = path.map((p) => p.clone().sub(centroid).applyQuaternion(face).multiplyScalar(scale));
+      for (let i = 0; i < pts.length - 1; i++) {
+        const a = pts[i]!;
+        const b = pts[i + 1]!;
+        const dir = new THREE.Vector3().subVectors(b, a);
+        const len = dir.length();
+        if (len < 1e-4) continue;
+        const seg = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, len, 6), lineMat);
+        seg.position.copy(a).lerp(b, 0.5);
+        seg.quaternion.setFromUnitVectors(this.yAxis, dir.multiplyScalar(1 / len));
+        group.add(seg);
       }
-      if (pts.length < 2) continue;
-      const curve = new THREE.CatmullRomCurve3(pts, false, "catmullrom", 0.1);
-      const tube = new THREE.Mesh(new THREE.TubeGeometry(curve, 28, 0.018, 6, false), tubeMat);
-      group.add(tube);
     }
 
-    const starGeo = new THREE.SphereGeometry(1, 16, 16);
-    const starMat = new THREE.MeshBasicMaterial({ color: 0xfff6e4 });
-    const glowMat = new THREE.MeshBasicMaterial({
-      color: 0xffe8b8,
-      transparent: true,
-      opacity: 0.28,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-    });
     const seen = new Set<string>();
     for (const path of con.paths) {
       for (const [ra, dec] of path) {
         const key = `${ra}:${dec}`;
         if (seen.has(key)) continue;
         seen.add(key);
+        const star = this.starNear(ra, dec);
+        const mag = star?.mag ?? 4.2;
+        const rgb = bvToRgb(star?.bv ?? 0.4);
+        const color = new THREE.Color().setRGB(rgb[0], rgb[1], rgb[2]);
+        const t = Math.max(0, Math.min(1, (mag + 1.4) / 5.6));
+        const size = 0.085 * (1 - t) + 0.026 * t;
         const p = equatorialToCartesian(ra, dec, 1);
         const v = new THREE.Vector3(p.x, p.y, p.z)
           .sub(centroid)
           .applyQuaternion(face)
           .multiplyScalar(scale);
-        const m = new THREE.Mesh(starGeo, starMat);
+        v.z += (1 - t) * 0.045;
+        const m = new THREE.Mesh(
+          new THREE.SphereGeometry(size, 16, 12),
+          new THREE.MeshBasicMaterial({ color }),
+        );
         m.position.copy(v);
-        m.scale.setScalar(0.055);
         group.add(m);
-        const g = new THREE.Mesh(starGeo, glowMat);
+        const g = new THREE.Mesh(
+          new THREE.SphereGeometry(size * 2.4, 12, 10),
+          new THREE.MeshBasicMaterial({
+            color,
+            transparent: true,
+            opacity: 0.22 + (1 - t) * 0.2,
+            depthWrite: false,
+            blending: THREE.AdditiveBlending,
+          }),
+        );
         g.position.copy(v);
-        g.scale.setScalar(0.14);
         group.add(g);
       }
     }
     return group;
+  }
+
+  private starNear(ra: number, dec: number) {
+    const stars = this.catalog?.stars;
+    if (!stars) return;
+    let best: (typeof stars)[number] | undefined;
+    let bestD = 0.45;
+    const cos = Math.cos((dec * Math.PI) / 180);
+    for (const s of stars) {
+      const d = Math.hypot((s.ra - ra) * cos, s.dec - dec);
+      if (d < bestD) {
+        bestD = d;
+        best = s;
+      }
+    }
+    return best;
   }
 
   private makeBodyPresent(body: SolarBody) {
